@@ -233,7 +233,10 @@ function updateSenderFrameUI(info: FrameInfo) {
 
     if (senderFrameTypeBadge) {
       senderFrameTypeBadge.className = 'badge-frame-type';
-      if (mode === '4x4') {
+      if (mode === '6x6') {
+        senderFrameTypeBadge.classList.add('type-data');
+        senderFrameTypeBadge.textContent = `⚡ 36-QR MATRIX (Page ${info.currentPage + 1}/${info.totalPages})`;
+      } else if (mode === '4x4') {
         senderFrameTypeBadge.classList.add('type-data');
         senderFrameTypeBadge.textContent = `⚡ 16-QR MATRIX (Page ${info.currentPage + 1}/${info.totalPages})`;
       } else if (mode === '2x2') {
@@ -299,8 +302,13 @@ async function handleFileSelected(file: File) {
     const ext = file.name.split('.').pop()?.toUpperCase() || 'BIN';
     if (senderFileExt) senderFileExt.textContent = ext;
 
-    if (file.size > 2 * 1024 * 1024) {
-      showSenderAlert(`Notice: Large file (${formatBytes(file.size)}). Optical transfer works best with smaller files (< 1MB).`, 'warning');
+    if (file.size > 64 * 1024 * 1024) {
+      showSenderAlert(`File size exceeds 64 MB limit (${formatBytes(file.size)}). Please choose a file up to 64 MB.`, 'error');
+      return;
+    } else if (file.size > 8 * 1024 * 1024) {
+      showSenderAlert(`Large file (${formatBytes(file.size)}). Use 6×6 Matrix or 1-Scan P2P Turbo mode for fastest transfer!`, 'warning');
+    } else if (file.size > 2 * 1024 * 1024) {
+      showSenderAlert(`Notice: File is ${formatBytes(file.size)}. Multi-QR Matrix (4×4 or 6×6) recommended for high transfer rate.`, 'info');
     }
 
     const chunkSize = parseInt(chunkSizeSelect.value, 10);
@@ -352,7 +360,7 @@ if (btnToggleStaticMode) {
 }
 
 // Optical Transmission Mode Tabs
-function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4') {
+function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4' | '6x6') {
   if (mode === '1x1') {
     if (timingLabelText) timingLabelText.textContent = 'Transmission Speed:';
     fpsLabel.textContent = `${sender.getFps()} FPS`;
@@ -388,14 +396,22 @@ function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4') {
       `;
     }
     if (modeHintText) {
-      modeHintText.textContent = mode === '4x4'
-        ? 'Displays 16 QR codes in a square. Mobile scans all 16 at once; extra boxes stay empty!'
-        : 'Displays 4 QR codes in a 2×2 grid for smaller screens or mid-range phone cameras.';
+      if (mode === '6x6') {
+        modeHintText.textContent = 'Displays 36 QR codes in a 6×6 high-density matrix. Maximum throughput for widescreen monitors and sharp HD cameras!';
+      } else if (mode === '4x4') {
+        modeHintText.textContent = 'Displays 16 QR codes in a square. Mobile scans all 16 at once; extra boxes stay empty!';
+      } else {
+        modeHintText.textContent = 'Displays 4 QR codes in a 2×2 grid for smaller screens or mid-range phone cameras.';
+      }
     }
     if (scanInstructionText) {
-      scanInstructionText.textContent = mode === '4x4'
-        ? 'Point the receiving phone camera at the 16-QR matrix. Mobile scans all 16 codes at once. Extra boxes stay empty.'
-        : 'Point camera at the 2×2 grid to capture 4 chunks simultaneously.';
+      if (mode === '6x6') {
+        scanInstructionText.textContent = 'Point wide camera at the 6×6 matrix. WASM zxing-cpp engine scans up to 36 codes at once!';
+      } else if (mode === '4x4') {
+        scanInstructionText.textContent = 'Point the receiving phone camera at the 16-QR matrix. Mobile scans all 16 codes at once. Extra boxes stay empty.';
+      } else {
+        scanInstructionText.textContent = 'Point camera at the 2×2 grid to capture 4 chunks simultaneously.';
+      }
     }
   }
   const info = sender.getFrameInfo();
@@ -410,7 +426,7 @@ function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4') {
 
 modeTabs.forEach(tab => {
   tab.addEventListener('click', () => {
-    const mode = tab.getAttribute('data-mode') as '1x1' | '2x2' | '4x4';
+    const mode = tab.getAttribute('data-mode') as '1x1' | '2x2' | '4x4' | '6x6';
     if (!mode) return;
     modeTabs.forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
@@ -637,8 +653,6 @@ if (btnFsNext) {
 const receiverVideo = document.getElementById('receiver-video') as HTMLVideoElement;
 const btnCameraToggle = document.getElementById('btn-camera-toggle') as HTMLButtonElement;
 const cameraBtnText = document.getElementById('camera-btn-text') as HTMLSpanElement;
-const btnCameraFlip = document.getElementById('btn-camera-flip') as HTMLButtonElement;
-const cameraSelect = document.getElementById('camera-select') as HTMLSelectElement;
 const cameraPlaceholder = document.getElementById('camera-placeholder') as HTMLDivElement;
 const viewfinderOverlay = document.getElementById('viewfinder-overlay') as HTMLDivElement;
 const recBatchBadge = document.getElementById('rec-batch-badge') as HTMLDivElement | null;
@@ -666,8 +680,6 @@ const downloadSizeBadge = document.getElementById('download-size-badge') as HTML
 const btnReceiveAnother = document.getElementById('btn-receive-another') as HTMLButtonElement;
 
 let isCameraActive = false;
-let currentFacingMode: 'environment' | 'user' = 'environment';
-let availableCameras: MediaDeviceInfo[] = [];
 let batchBadgeTimeout: number | null = null;
 
 const receiver = new OpticalReceiver({
@@ -855,41 +867,24 @@ btnReceiverReset.addEventListener('click', () => {
   filePreviewArea.classList.add('hidden');
 });
 
-// Camera controls
+// Camera controls (Permanently locked to Back Camera, No Flip/Dropdown Clutter)
 async function startCameraSession() {
   try {
-    const selectedDeviceId = cameraSelect.value || undefined;
-    await receiver.startCamera(receiverVideo, selectedDeviceId, currentFacingMode);
+    await receiver.startCamera(receiverVideo);
     isCameraActive = true;
     cameraBtnText.textContent = 'Stop Camera';
     cameraPlaceholder.classList.add('hidden');
     viewfinderOverlay.classList.remove('hidden');
-    btnCameraFlip.disabled = false;
-    cameraSelect.disabled = false;
-
-    // Populate camera devices
-    availableCameras = await receiver.getAvailableCameras();
-    if (availableCameras.length > 0 && cameraSelect.options.length <= 1) {
-      cameraSelect.innerHTML = '';
-      availableCameras.forEach((cam, idx) => {
-        const opt = document.createElement('option');
-        opt.value = cam.deviceId;
-        opt.textContent = cam.label || `Camera ${idx + 1}`;
-        cameraSelect.appendChild(opt);
-      });
-    }
   } catch (err: any) {
-    console.error('Failed to start camera', err);
+    console.error('Failed to start back camera', err);
   }
 }
 
 function stopCameraSession() {
   receiver.stop();
   isCameraActive = false;
-  cameraBtnText.textContent = 'Start Camera';
+  cameraBtnText.textContent = 'Start Back Camera';
   cameraPlaceholder.classList.remove('hidden');
-  btnCameraFlip.disabled = true;
-  cameraSelect.disabled = true;
 }
 
 btnCameraToggle.addEventListener('click', () => {
@@ -897,21 +892,6 @@ btnCameraToggle.addEventListener('click', () => {
     stopCameraSession();
   } else {
     startCameraSession();
-  }
-});
-
-btnCameraFlip.addEventListener('click', async () => {
-  currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
-  if (isCameraActive) {
-    stopCameraSession();
-    await startCameraSession();
-  }
-});
-
-cameraSelect.addEventListener('change', async () => {
-  if (isCameraActive) {
-    stopCameraSession();
-    await startCameraSession();
   }
 });
 

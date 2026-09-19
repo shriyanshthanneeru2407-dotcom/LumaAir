@@ -6,6 +6,7 @@
 export const PROTOCOL_HEADER = 'LUMA2:';
 export const PROTOCOL_VERSION = 2;
 export const DEFAULT_CHUNK_SIZE = 220; // Raw bytes per chunk
+export const MAX_FILE_BYTES = 64 * 1024 * 1024; // 64 MB file limit (matching Decimen)
 
 export type PacketType = 'TRANSFER_START' | 'DATA_FRAME' | 'TRANSFER_END' | 'STATIC_FILE';
 

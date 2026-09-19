@@ -230,6 +230,19 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     const p4Info = sender.getFrameInfo();
     expect(p4Info.activeSlotsCount).toBe(2);
     expect(p4Info.emptySlotsCount).toBe(2); // 4 - 2 = 2 empty slots!
+
+    // Test 6x6 mode (36 slots)
+    sender.setGridMode('6x6');
+    expect(sender.getPageSize()).toBe(36);
+    expect(sender.getTotalPages()).toBe(1); // 18 packets fit in 1 page of 36 slots
+    const p6Info = sender.getFrameInfo();
+    expect(p6Info.activeSlotsCount).toBe(18);
+    expect(p6Info.emptySlotsCount).toBe(18); // 36 - 18 = 18 empty slots
+  });
+
+  it('should define MAX_FILE_BYTES as 64 MB (matching Decimen architecture)', async () => {
+    const { MAX_FILE_BYTES } = await import('../src/core/protocol');
+    expect(MAX_FILE_BYTES).toBe(64 * 1024 * 1024);
   });
 
   it('should support Single Static Giant QR for 1-shot transfer with 0 flashing', () => {

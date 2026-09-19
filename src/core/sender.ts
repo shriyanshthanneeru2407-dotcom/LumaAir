@@ -9,7 +9,7 @@ import {
 } from './protocol';
 
 export type SenderState = 'IDLE' | 'LOADED' | 'TRANSMITTING' | 'PAUSED' | 'STOPPED';
-export type GridMode = '1x1' | '2x2' | '4x4';
+export type GridMode = '1x1' | '2x2' | '4x4' | '6x6';
 
 export interface FrameInfo {
   frameIndex: number;
@@ -136,6 +136,7 @@ export class OpticalSender {
   }
 
   public getPageSize(): number {
+    if (this.gridMode === '6x6') return 36;
     if (this.gridMode === '4x4') return 16;
     if (this.gridMode === '2x2') return 4;
     return 1;
@@ -395,8 +396,8 @@ export class OpticalSender {
         cellEl.appendChild(badge);
         this.gridContainer.appendChild(cellEl);
 
-        const qrWidth = this.gridMode === '4x4' ? 140 : (this.gridMode === '2x2' ? 200 : 360);
-        const qrMargin = this.gridMode === '4x4' ? 1 : 2;
+        const qrWidth = this.gridMode === '6x6' ? 96 : (this.gridMode === '4x4' ? 140 : (this.gridMode === '2x2' ? 200 : 360));
+        const qrMargin = (this.gridMode === '6x6' || this.gridMode === '4x4') ? 1 : 2;
 
         const p = QRCode.toCanvas(canvas, serializePacket(packet), {
           errorCorrectionLevel: 'M',
