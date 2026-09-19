@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createTransferPackets,
+  createSingleStaticPacket,
   serializePacket,
   parsePacket,
   TransferAssembler,
@@ -229,6 +230,33 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     const p4Info = sender.getFrameInfo();
     expect(p4Info.activeSlotsCount).toBe(2);
     expect(p4Info.emptySlotsCount).toBe(2); // 4 - 2 = 2 empty slots!
+  });
+
+  it('should support Single Static Giant QR for 1-shot transfer with 0 flashing', () => {
+    const rawData = new TextEncoder().encode('Single Static Giant QR Payload with Zero Flashing');
+    const staticPacket = createSingleStaticPacket(rawData, 'quick_secret.txt', 'text/plain');
+
+    expect(staticPacket.type).toBe('STATIC_FILE');
+    expect(staticPacket.file_size).toBe(rawData.byteLength);
+    expect(staticPacket.checksum).toBe(crc32(rawData));
+    expect(staticPacket.filename).toBe('quick_secret.txt');
+
+    const serialized = serializePacket(staticPacket);
+    const parsed = parsePacket(serialized);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.type).toBe('STATIC_FILE');
+
+    const assembler = new TransferAssembler();
+    const result = assembler.addPacket(parsed!);
+    expect(result.accepted).toBe(true);
+    expect(result.isComplete).toBe(true);
+    expect(assembler.isComplete()).toBe(true);
+
+    const reconstructed = assembler.reconstruct();
+    expect(reconstructed).not.toBeNull();
+    expect(reconstructed?.fileName).toBe('quick_secret.txt');
+    expect(reconstructed?.fileBuffer).toEqual(rawData);
+    expect(reconstructed?.checksum).toBe(crc32(rawData));
   });
 });
 

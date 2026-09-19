@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import {
   createTransferPackets,
+  createSingleStaticPacket,
   serializePacket,
   ProtocolPacket,
   PacketType,
@@ -28,6 +29,8 @@ export interface FrameInfo {
   pageHoldSeconds: number;
   activeSlotsCount: number;
   emptySlotsCount: number;
+  isStaticMode: boolean;
+  isStaticEligible: boolean;
 }
 
 export class OpticalSender {
@@ -42,7 +45,9 @@ export class OpticalSender {
   private canvas: HTMLCanvasElement | null = null;
   private gridContainer: HTMLElement | null = null;
   private transferId: string = '';
-  private gridMode: GridMode = '4x4'; // Default to 4x4 16-QR matrix as requested
+  private gridMode: GridMode = '1x1'; // Default to Giant Single QR code
+  private autoStaticMode: boolean = true;
+  private chunkSize: number = DEFAULT_CHUNK_SIZE;
 
   private onStateChangeCb?: (state: SenderState) => void;
   private onFrameChangeCb?: (info: FrameInfo) => void;
@@ -53,6 +58,7 @@ export class OpticalSender {
     fps?: number;
     pageHoldSeconds?: number;
     gridMode?: GridMode;
+    autoStaticMode?: boolean;
     onStateChange?: (state: SenderState) => void;
     onFrameChange?: (info: FrameInfo) => void;
   }) {
@@ -61,6 +67,7 @@ export class OpticalSender {
     if (options?.fps) this.fps = options.fps;
     if (options?.pageHoldSeconds) this.pageHoldSeconds = options.pageHoldSeconds;
     if (options?.gridMode) this.gridMode = options.gridMode;
+    if (options?.autoStaticMode !== undefined) this.autoStaticMode = options.autoStaticMode;
     this.onStateChangeCb = options?.onStateChange;
     this.onFrameChangeCb = options?.onFrameChange;
   }
@@ -79,19 +86,37 @@ export class OpticalSender {
     }
   }
 
-  public async loadFile(file: File, chunkSize: number = DEFAULT_CHUNK_SIZE): Promise<void> {
+  public async loadFile(file: File, chunkSize: number = DEFAULT_CHUNK_SIZE, forceStream: boolean = false): Promise<void> {
     this.stop();
     this.file = file;
+    this.chunkSize = chunkSize;
     this.currentFrameIndex = 0;
     this.loopCount = 0;
 
     const arrayBuffer = await file.arrayBuffer();
     const uint8 = new Uint8Array(arrayBuffer);
 
-    this.packets = createTransferPackets(uint8, file.name, file.type || 'application/octet-stream', chunkSize);
+    if (this.autoStaticMode && this.gridMode === '1x1' && !forceStream && uint8.byteLength <= 2400) {
+      this.packets = [createSingleStaticPacket(uint8, file.name, file.type || 'application/octet-stream')];
+    } else {
+      this.packets = createTransferPackets(uint8, file.name, file.type || 'application/octet-stream', chunkSize);
+    }
     this.transferId = this.packets.length > 0 ? this.packets[0].transfer_id : '';
     this.setState('LOADED');
     await this.renderCurrentFrame();
+  }
+
+  public isStaticEligible(): boolean {
+    return this.file !== null && this.file.size <= 2400;
+  }
+
+  public isStaticMode(): boolean {
+    return this.packets.length === 1 && this.packets[0].type === 'STATIC_FILE';
+  }
+
+  public async setUseStaticMode(useStatic: boolean): Promise<void> {
+    if (!this.file) return;
+    await this.loadFile(this.file, this.chunkSize, !useStatic);
   }
 
   public start() {
@@ -99,7 +124,9 @@ export class OpticalSender {
     if (this.state === 'TRANSMITTING') return;
 
     this.setState('TRANSMITTING');
-    this.startLoop();
+    if (!this.isStaticMode()) {
+      this.startLoop();
+    }
   }
 
   public pause() {
@@ -263,7 +290,9 @@ export class OpticalSender {
       totalPages: totalPages,
       pageHoldSeconds: this.pageHoldSeconds,
       activeSlotsCount: activeSlots,
-      emptySlotsCount: emptySlots
+      emptySlotsCount: emptySlots,
+      isStaticMode: curPacket?.type === 'STATIC_FILE',
+      isStaticEligible: (this.file?.size || 0) <= 2400
     };
   }
 
@@ -354,6 +383,9 @@ export class OpticalSender {
         } else if (packet.type === 'TRANSFER_END') {
           badge.textContent = 'END';
           badge.classList.add('badge-end');
+        } else if (packet.type === 'STATIC_FILE') {
+          badge.textContent = 'STATIC (1-SHOT)';
+          badge.classList.add('badge-start');
         } else {
           badge.textContent = `#${(packet as any).seq + 1}`;
           badge.classList.add('badge-data');

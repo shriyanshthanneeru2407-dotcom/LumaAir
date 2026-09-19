@@ -1350,6 +1350,217 @@ input[type="range"] {
   white-space: nowrap;
 }
 
+/* ================= Engine Selector Banner ================= */
+.engine-selector-banner {
+  margin-bottom: 1.5rem;
+  background: rgba(17, 24, 39, 0.8);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 0.6rem;
+  backdrop-filter: blur(10px);
+}
+
+.engine-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+@media (max-width: 680px) {
+  .engine-tabs {
+    grid-template-columns: 1fr;
+  }
+}
+
+.engine-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.9rem 1.1rem;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.engine-tab:hover {
+  background: rgba(30, 41, 59, 0.9);
+  color: var(--text-primary);
+  border-color: rgba(56, 189, 248, 0.3);
+  transform: translateY(-1px);
+}
+
+.engine-tab.active {
+  background: linear-gradient(135deg, rgba(14, 116, 144, 0.25), rgba(56, 189, 248, 0.15));
+  border-color: var(--accent-cyan);
+  color: var(--text-primary);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+}
+
+.engine-tab-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.engine-tab-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.engine-tab-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.engine-tab-sub {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.engine-badge-rec {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: rgba(34, 197, 94, 0.2);
+  color: var(--accent-green);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  padding: 3px 8px;
+  border-radius: 9999px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* ================= Static 1-Shot Banner ================= */
+.static-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-top: 10px;
+}
+
+.static-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.static-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--accent-green);
+  letter-spacing: 0.05em;
+}
+
+.static-desc {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: var(--text-primary);
+}
+
+.btn-outline:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+/* ================= P2P Specific Styles ================= */
+.p2p-status-box {
+  margin-top: 14px;
+  padding: 14px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.p2p-status-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.p2p-status-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.p2p-status-desc {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.p2p-url-copy-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.p2p-qr-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  padding: 1rem;
+}
+
+.p2p-qr-wrapper canvas {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* P2P Receiver Card in Receiver Tab */
+.p2p-rec-card {
+  margin-bottom: 1.5rem;
+  border: 1.5px solid var(--accent-cyan);
+  background: linear-gradient(180deg, rgba(14, 116, 144, 0.15) 0%, rgba(15, 23, 42, 0.8) 100%);
+  box-shadow: 0 0 30px rgba(56, 189, 248, 0.15);
+}
+
+.p2p-rec-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.p2p-manual-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  margin-top: 8px;
+}
+
+.p2p-manual-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 /* Utilities */
 .hidden {
   display: none !important;

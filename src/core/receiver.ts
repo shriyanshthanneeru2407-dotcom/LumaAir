@@ -28,6 +28,7 @@ export interface ReceiverCallbacks {
   onFileComplete?: (file: ReconstructedFile) => void;
   onFrameRejected?: (packet: ProtocolPacket, reason: string) => void;
   onBatchScanned?: (acceptedInFrame: number, totalFoundInFrame: number) => void;
+  onP2PDiscovered?: (sessionId: string) => void;
   onError?: (err: Error) => void;
 }
 
@@ -311,6 +312,17 @@ export class OpticalReceiver {
   }
 
   private async handleRawQrData(rawData: string): Promise<boolean> {
+    // Check if scanned QR is a P2P Turbo pairing URL or token
+    if (rawData.includes('#p2p=') || rawData.includes('p2p=')) {
+      const match = rawData.match(/p2p=([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) {
+        if (this.callbacks.onP2PDiscovered) {
+          this.callbacks.onP2PDiscovered(match[1]);
+          return true;
+        }
+      }
+    }
+
     const packet = parsePacket(rawData);
     if (!packet) return false;
 
