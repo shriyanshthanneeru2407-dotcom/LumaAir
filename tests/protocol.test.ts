@@ -1,15 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import {
-  createFilePackets,
+  createTransferPackets,
   serializePacket,
   parsePacket,
   TransferAssembler,
   crc32,
   bytesToBase64,
-  base64ToBytes
+  base64ToBytes,
+  getFileExtension,
+  TransferStartPacket,
+  DataFramePacket,
+  TransferEndPacket
 } from '../src/core/protocol';
 
-describe('Protocol & Chunking Engine', () => {
+describe('Phase 2 Proper Transfer Protocol', () => {
   it('should roundtrip binary data to base64 correctly', () => {
     const original = new Uint8Array([0, 1, 2, 254, 255, 128, 64, 32, 16, 8, 4, 2, 1]);
     const b64 = bytesToBase64(original);
@@ -17,77 +21,131 @@ describe('Protocol & Chunking Engine', () => {
     expect(decoded).toEqual(original);
   });
 
-  it('should compute consistent CRC32', () => {
-    const data1 = new TextEncoder().encode('Hello, Optical World!');
-    const data2 = new TextEncoder().encode('Hello, Optical World!');
-    const data3 = new TextEncoder().encode('Different string');
-    
-    expect(crc32(data1)).toBe(crc32(data2));
-    expect(crc32(data1)).not.toBe(crc32(data3));
+  it('should correctly extract file extensions', () => {
+    expect(getFileExtension('archive.tar.gz')).toBe('gz');
+    expect(getFileExtension('photo.PNG')).toBe('png');
+    expect(getFileExtension('document.pdf')).toBe('pdf');
+    expect(getFileExtension('no_ext')).toBe('');
   });
 
-  it('should split file into correct number of chunks and serialize', () => {
-    const sampleText = 'The quick brown fox jumps over the lazy dog. '.repeat(20); // ~900 bytes
-    const sampleBuffer = new TextEncoder().encode(sampleText);
+  it('should generate structured START, DATA, and END frames with all required fields', () => {
+    const textData = 'Structured Optical Communication Frame Protocol Phase 2 Verification'.repeat(10);
+    const buffer = new TextEncoder().encode(textData);
     const chunkSize = 200;
 
-    const packets = createFilePackets(sampleBuffer, 'fox.txt', 'text/plain', chunkSize);
-    expect(packets.length).toBe(Math.ceil(sampleBuffer.length / chunkSize));
-    expect(packets[0].total).toBe(packets.length);
-    expect(packets[0].seq).toBe(0);
-    expect(packets[packets.length - 1].seq).toBe(packets.length - 1);
+    const packets = createTransferPackets(buffer, 'report.pdf', 'application/pdf', chunkSize);
+    
+    // First frame must be TRANSFER_START
+    const startPacket = packets[0] as TransferStartPacket;
+    expect(startPacket.type).toBe('TRANSFER_START');
+    expect(startPacket.protocol_version).toBe(2);
+    expect(startPacket.transfer_id).toBeDefined();
+    expect(startPacket.filename).toBe('report.pdf');
+    expect(startPacket.file_ext).toBe('pdf');
+    expect(startPacket.mime_type).toBe('application/pdf');
+    expect(startPacket.file_size).toBe(buffer.byteLength);
+    expect(startPacket.chunk_size).toBe(chunkSize);
+    expect(startPacket.total_chunks).toBe(Math.ceil(buffer.byteLength / chunkSize));
+    expect(startPacket.file_checksum).toBe(crc32(buffer));
 
-    // Verify serialize and parse
-    const serialized0 = serializePacket(packets[0]);
-    const parsed0 = parsePacket(serialized0);
-    expect(parsed0).not.toBeNull();
-    expect(parsed0?.seq).toBe(0);
-    expect(parsed0?.name).toBe('fox.txt');
-    expect(parsed0?.size).toBe(sampleBuffer.length);
-  });
-
-  it('should reject packets with corrupted CRC', () => {
-    const sampleBuffer = new TextEncoder().encode('Sensitive data packet');
-    const packets = createFilePackets(sampleBuffer, 'data.bin', 'application/octet-stream', 100);
-    const packet = packets[0];
-
-    // Corrupt CRC
-    packet.crc = packet.crc ^ 0x12345678;
-    const serialized = serializePacket(packet);
-    const parsed = parsePacket(serialized);
-    expect(parsed).toBeNull();
-  });
-
-  it('should assemble out-of-order packets and reconstruct identical file', async () => {
-    // Generate 1500 bytes of pseudo-random binary data
-    const originalBytes = new Uint8Array(1500);
-    for (let i = 0; i < 1500; i++) {
-      originalBytes[i] = (i * 37 + 13) % 256;
+    // Middle frames must be DATA_FRAME
+    const totalDataFrames = startPacket.total_chunks;
+    for (let i = 0; i < totalDataFrames; i++) {
+      const dataPacket = packets[i + 1] as DataFramePacket;
+      expect(dataPacket.type).toBe('DATA_FRAME');
+      expect(dataPacket.transfer_id).toBe(startPacket.transfer_id);
+      expect(dataPacket.seq).toBe(i);
+      expect(dataPacket.chunk_id).toBe(`${startPacket.transfer_id}_c${i}`);
+      expect(dataPacket.total_chunks).toBe(totalDataFrames);
+      expect(dataPacket.crc).toBeDefined();
+      expect(dataPacket.payload).toBeDefined();
     }
 
-    const packets = createFilePackets(originalBytes, 'random_data.bin', 'application/octet-stream', 220);
-    expect(packets.length).toBe(7);
+    // Last frame must be TRANSFER_END
+    const endPacket = packets[packets.length - 1] as TransferEndPacket;
+    expect(endPacket.type).toBe('TRANSFER_END');
+    expect(endPacket.protocol_version).toBe(2);
+    expect(endPacket.transfer_id).toBe(startPacket.transfer_id);
+    expect(endPacket.total_chunks).toBe(totalDataFrames);
+    expect(endPacket.checksum).toBe(startPacket.file_checksum);
+  });
 
-    // Shuffle packet arrival order (e.g. [3, 0, 5, 1, 6, 2, 4])
-    const shuffled = [...packets].sort(() => Math.random() - 0.5);
+  it('should serialize and deserialize all 3 frame types with integrity verification', () => {
+    const buffer = new TextEncoder().encode('Test Data Payload Frame');
+    const packets = createTransferPackets(buffer, 'test.txt', 'text/plain', 50);
 
-    const assembler = new TransferAssembler();
-    for (const p of shuffled) {
-      const serialized = serializePacket(p);
+    for (const packet of packets) {
+      const serialized = serializePacket(packet);
+      expect(serialized.startsWith('LUMA2:')).toBe(true);
+
       const parsed = parsePacket(serialized);
       expect(parsed).not.toBeNull();
-      if (parsed) {
-        assembler.addPacket(parsed);
-      }
+      expect(parsed?.type).toBe(packet.type);
+      expect(parsed?.transfer_id).toBe(packet.transfer_id);
+    }
+  });
+
+  it('should REJECT frames belonging to a different transfer ID', () => {
+    const fileA = new TextEncoder().encode('File A Contents');
+    const fileB = new TextEncoder().encode('File B Different Session Contents');
+
+    const packetsA = createTransferPackets(fileA, 'fileA.txt', 'text/plain', 100);
+    const packetsB = createTransferPackets(fileB, 'fileB.txt', 'text/plain', 100);
+
+    expect(packetsA[0].transfer_id).not.toBe(packetsB[0].transfer_id);
+
+    const assembler = new TransferAssembler();
+
+    // 1. Ingest transfer A start frame
+    const resA1 = assembler.addPacket(packetsA[0]);
+    expect(resA1.accepted).toBe(true);
+    expect(assembler.getProgress().transferId).toBe(packetsA[0].transfer_id);
+
+    // 2. Attempt to inject a frame from transfer B
+    const resB = assembler.addPacket(packetsB[1]); // Foreign data chunk
+    expect(resB.accepted).toBe(false);
+    expect(resB.rejectedReason).toContain('different transfer');
+    expect(assembler.getProgress().rejectedCount).toBe(1);
+    expect(assembler.getProgress().lastRejectedTransferId).toBe(packetsB[0].transfer_id);
+
+    // 3. Continue feeding transfer A frames: should still accept transfer A
+    const resA2 = assembler.addPacket(packetsA[1]);
+    expect(resA2.accepted).toBe(true);
+    expect(assembler.getProgress().receivedCount).toBe(1);
+  });
+
+  it('should reject corrupted chunk payload CRC', () => {
+    const file = new TextEncoder().encode('Integrity critical document');
+    const packets = createTransferPackets(file, 'doc.txt', 'text/plain', 100);
+    const dataFrame = packets[1] as DataFramePacket;
+
+    // Tamper with data packet CRC
+    dataFrame.crc = dataFrame.crc ^ 0x9999;
+    const serialized = serializePacket(dataFrame);
+    const parsed = parsePacket(serialized);
+    expect(parsed).toBeNull(); // parsePacket discards corrupted chunk
+  });
+
+  it('should reassemble full file and verify whole-file checksum', () => {
+    const rawBytes = new Uint8Array(800);
+    for (let i = 0; i < 800; i++) rawBytes[i] = (i * 17) % 256;
+
+    const packets = createTransferPackets(rawBytes, 'dataset.bin', 'application/octet-stream', 150);
+    const assembler = new TransferAssembler();
+
+    // Shuffle packets out of order (e.g. data frames first, then start, then end)
+    const shuffled = [...packets].sort(() => Math.random() - 0.5);
+
+    for (const p of shuffled) {
+      assembler.addPacket(p);
     }
 
     expect(assembler.isComplete()).toBe(true);
     const reconstructed = assembler.reconstruct();
     expect(reconstructed).not.toBeNull();
-    expect(reconstructed?.fileName).toBe('random_data.bin');
-    expect(reconstructed?.fileBuffer).toEqual(originalBytes);
-
-    const bufferText = await reconstructed?.blob.arrayBuffer();
-    expect(new Uint8Array(bufferText!)).toEqual(originalBytes);
+    expect(reconstructed?.fileName).toBe('dataset.bin');
+    expect(reconstructed?.fileExt).toBe('bin');
+    expect(reconstructed?.fileBuffer).toEqual(rawBytes);
+    expect(reconstructed?.checksum).toBe(crc32(rawBytes));
   });
 });

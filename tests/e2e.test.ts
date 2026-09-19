@@ -2,33 +2,31 @@ import { describe, it, expect } from 'vitest';
 import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 import {
-  createFilePackets,
+  createTransferPackets,
   serializePacket,
   parsePacket,
   TransferAssembler
 } from '../src/core/protocol';
 
-describe('End-to-End Optical Transfer Simulation', () => {
-  it('should encode chunks to QR images, decode with jsQR, and reassemble bit-for-bit file', async () => {
-    // Create simulated file content
-    const originalText = 'OpticalDrop Transmission Test: 1234567890 ABCDEFGHIJKLMNOPQRSTUVWXYZ! '.repeat(10);
+describe('Phase 2 End-to-End Structured Optical Transfer Simulation', () => {
+  it('should encode START, DATA, and END frames to QR images, decode with jsQR, and reassemble verified file', async () => {
+    const originalText = 'Luma Phase 2 Optical Transfer: START -> DATA -> END with CRC32 integrity! '.repeat(8);
     const originalBuffer = new TextEncoder().encode(originalText);
-    const fileName = 'secret_document.txt';
-    const mimeType = 'text/plain';
+    const fileName = 'presentation.key';
+    const mimeType = 'application/octet-stream';
 
-    // 1. Sender chunks file
-    const packets = createFilePackets(originalBuffer, fileName, mimeType, 180);
-    expect(packets.length).toBeGreaterThan(1);
+    // 1. Sender creates structured packets
+    const packets = createTransferPackets(originalBuffer, fileName, mimeType, 180);
+    expect(packets[0].type).toBe('TRANSFER_START');
+    expect(packets[packets.length - 1].type).toBe('TRANSFER_END');
 
     const assembler = new TransferAssembler();
 
-    // 2. Transmit each frame: QR generation -> pixel scanning -> decoding -> assembly
+    // 2. Optical transmission loop: QR rendering -> pixel reading -> scanning -> assembly
     for (let i = 0; i < packets.length; i++) {
       const packet = packets[i];
       const qrData = serializePacket(packet);
 
-      // Create a canvas representation via qrcode raw modules or dataURL
-      // QRCode.create generates the matrix of modules
       const qrObj = QRCode.create(qrData, { errorCorrectionLevel: 'M' });
       const size = qrObj.modules.size;
       const margin = 4;
@@ -37,53 +35,47 @@ describe('End-to-End Optical Transfer Simulation', () => {
       const imgWidth = fullSize * scale;
       const imgHeight = fullSize * scale;
 
-      // Build raw RGBA pixel buffer
       const rgbaBuffer = new Uint8ClampedArray(imgWidth * imgHeight * 4);
-      // Fill white background
-      rgbaBuffer.fill(255);
+      rgbaBuffer.fill(255); // White background
 
-      // Fill black modules
       for (let r = 0; r < size; r++) {
         for (let c = 0; c < size; c++) {
           if (qrObj.modules.get(r, c)) {
-            // Draw scaled pixel block
             const startX = (c + margin) * scale;
             const startY = (r + margin) * scale;
             for (let dy = 0; dy < scale; dy++) {
               for (let dx = 0; dx < scale; dx++) {
                 const px = ((startY + dy) * imgWidth + (startX + dx)) * 4;
-                rgbaBuffer[px] = 0;     // R
-                rgbaBuffer[px + 1] = 0; // G
-                rgbaBuffer[px + 2] = 0; // B
-                rgbaBuffer[px + 3] = 255; // A
+                rgbaBuffer[px] = 0;
+                rgbaBuffer[px + 1] = 0;
+                rgbaBuffer[px + 2] = 0;
+                rgbaBuffer[px + 3] = 255;
               }
             }
           }
         }
       }
 
-      // 3. Receiver decodes pixel buffer using jsQR
+      // Receiver decodes pixel buffer
       const scanned = jsQR(rgbaBuffer, imgWidth, imgHeight);
       expect(scanned).not.toBeNull();
       expect(scanned?.data).toBeDefined();
 
-      // 4. Parse optical packet
       const decodedPacket = parsePacket(scanned!.data);
       expect(decodedPacket).not.toBeNull();
-      expect(decodedPacket?.seq).toBe(i);
-      expect(decodedPacket?.name).toBe(fileName);
+      expect(decodedPacket?.type).toBe(packet.type);
+      expect(decodedPacket?.transfer_id).toBe(packet.transfer_id);
 
-      // 5. Feed into assembler
       const addResult = assembler.addPacket(decodedPacket!);
       expect(addResult.accepted).toBe(true);
     }
 
-    // 6. Verify completion & full reconstruction
+    // 3. Verification & reconstruction
     expect(assembler.isComplete()).toBe(true);
     const result = assembler.reconstruct();
     expect(result).not.toBeNull();
     expect(result?.fileName).toBe(fileName);
-    expect(result?.mimeType).toBe(mimeType);
+    expect(result?.fileExt).toBe('key');
     expect(result?.fileBuffer).toEqual(originalBuffer);
 
     const recoveredText = new TextDecoder().decode(result!.fileBuffer);

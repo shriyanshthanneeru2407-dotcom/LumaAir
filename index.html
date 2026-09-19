@@ -92,12 +92,24 @@
                   <span id="sender-file-name" class="info-value font-mono">-</span>
                 </div>
                 <div class="file-info-row">
+                  <span class="info-label">Format / Ext:</span>
+                  <span id="sender-file-ext" class="info-value font-mono">-</span>
+                </div>
+                <div class="file-info-row">
                   <span class="info-label">Size:</span>
                   <span id="sender-file-size" class="info-value font-mono">-</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">Chunks / Frames:</span>
+                  <span class="info-label">Transfer ID:</span>
+                  <span id="sender-transfer-id" class="info-value font-mono text-cyan">-</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Data Chunks:</span>
                   <span id="sender-frame-count" class="info-value font-mono">-</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Total Protocol Frames:</span>
+                  <span id="sender-total-frames-desc" class="info-value font-mono">-</span>
                 </div>
                 <div class="file-info-row">
                   <span class="info-label">Est. Cycle Time:</span>
@@ -163,6 +175,11 @@
               </div>
 
               <div class="qr-stage">
+                <div class="frame-type-bar">
+                  <span class="info-label">Active Packet:</span>
+                  <span id="sender-frame-type-badge" class="badge-frame-type type-idle">Waiting for file...</span>
+                </div>
+
                 <div class="qr-frame-wrapper" id="qr-wrapper">
                   <canvas id="sender-canvas" width="380" height="380"></canvas>
                   <div id="sender-placeholder" class="qr-placeholder">
@@ -263,6 +280,14 @@
               <!-- Live File Reception Stats -->
               <div id="receiver-file-stats" class="file-info-box">
                 <div class="file-info-row">
+                  <span class="info-label">Session ID:</span>
+                  <span id="rec-session-id" class="info-value font-mono text-cyan">Unlocked (Awaiting Stream)</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Protocol Status:</span>
+                  <span id="rec-protocol-status" class="info-value font-mono text-muted">Awaiting Header</span>
+                </div>
+                <div class="file-info-row">
                   <span class="info-label">File:</span>
                   <span id="rec-file-name" class="info-value font-mono">Waiting for sender...</span>
                 </div>
@@ -279,6 +304,9 @@
                   <span id="rec-missing-chunks" class="info-value font-mono text-warning">None</span>
                 </div>
               </div>
+
+              <!-- Foreign Transfer Rejection Warning -->
+              <div id="rec-rejected-alert" class="alert-box alert-warning hidden"></div>
 
               <!-- Progress bar -->
               <div class="progress-track" style="height: 10px;">

@@ -1,22 +1,59 @@
 /**
- * Cross-Device Optical File Transfer Protocol (v1)
+ * Cross-Device Optical File Transfer Protocol (v2) — Luma
+ * Structured multi-frame protocol with START, DATA, and END frames.
  */
 
-export const PROTOCOL_HEADER = 'OFT1:';
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_HEADER = 'LUMA2:';
+export const PROTOCOL_VERSION = 2;
 export const DEFAULT_CHUNK_SIZE = 220; // Raw bytes per chunk
 
-export interface FramePacket {
-  v: number;      // Protocol version
-  id: string;     // Unique session transfer ID
-  name: string;   // Original filename
-  size: number;   // Total file size in bytes
-  mime: string;   // File MIME type
-  total: number;  // Total number of chunks
-  seq: number;    // Chunk sequence index (0-indexed)
-  crc: number;    // CRC32 of this chunk's binary data
-  data: string;   // Base64 encoded chunk data
+export type PacketType = 'TRANSFER_START' | 'DATA_FRAME' | 'TRANSFER_END';
+
+/**
+ * 1. TRANSFER_START Frame
+ * Transmitted before data frames to initialize transfer metadata.
+ */
+export interface TransferStartPacket {
+  type: 'TRANSFER_START';
+  protocol_version: number;
+  transfer_id: string;
+  filename: string;
+  file_ext: string;
+  mime_type: string;
+  file_size: number;
+  chunk_size: number;
+  total_chunks: number;
+  file_checksum: number; // CRC32 of full file
 }
+
+/**
+ * 2. DATA_FRAME Frame
+ * Transmitted for each chunk of data.
+ */
+export interface DataFramePacket {
+  type: 'DATA_FRAME';
+  protocol_version: number;
+  transfer_id: string;
+  chunk_id: string; // Unique chunk ID (e.g. transferId_chunk_seq)
+  seq: number;      // 0-indexed sequence number
+  total_chunks: number;
+  payload: string;  // Base64 encoded payload
+  crc: number;      // CRC32 of this chunk's raw bytes
+}
+
+/**
+ * 3. TRANSFER_END Frame
+ * Transmitted after all data frames to mark transfer completion.
+ */
+export interface TransferEndPacket {
+  type: 'TRANSFER_END';
+  protocol_version: number;
+  transfer_id: string;
+  total_chunks: number;
+  checksum: number; // CRC32 of full file
+}
+
+export type ProtocolPacket = TransferStartPacket | DataFramePacket | TransferEndPacket;
 
 /**
  * Fast IEEE 802.3 CRC32 implementation
@@ -61,21 +98,53 @@ export function base64ToBytes(base64: string): Uint8Array {
 }
 
 /**
- * Split a file's binary buffer into transfer packets
+ * Extract clean file extension from a filename
  */
-export function createFilePackets(
+export function getFileExtension(filename: string): string {
+  const dotIndex = filename.lastIndexOf('.');
+  if (dotIndex !== -1 && dotIndex < filename.length - 1) {
+    return filename.substring(dotIndex + 1).toLowerCase();
+  }
+  return '';
+}
+
+/**
+ * Create structured Phase 2 transmission packets:
+ * 1. TRANSFER_START
+ * 2. DATA_FRAME (0 to N-1)
+ * 3. TRANSFER_END
+ */
+export function createTransferPackets(
   fileBuffer: Uint8Array,
   fileName: string,
   fileMime: string = 'application/octet-stream',
   chunkSize: number = DEFAULT_CHUNK_SIZE
-): FramePacket[] {
+): ProtocolPacket[] {
   const totalBytes = fileBuffer.byteLength;
   const totalChunks = Math.max(1, Math.ceil(totalBytes / chunkSize));
+  const fileExt = getFileExtension(fileName);
+  const fileChecksum = crc32(fileBuffer);
   
   // Random session transfer ID (8 alphanumeric characters)
   const transferId = Math.random().toString(36).substring(2, 10);
-  const packets: FramePacket[] = [];
+  const packets: ProtocolPacket[] = [];
 
+  // Frame 0: TRANSFER_START
+  const startPacket: TransferStartPacket = {
+    type: 'TRANSFER_START',
+    protocol_version: PROTOCOL_VERSION,
+    transfer_id: transferId,
+    filename: fileName,
+    file_ext: fileExt,
+    mime_type: fileMime || 'application/octet-stream',
+    file_size: totalBytes,
+    chunk_size: chunkSize,
+    total_chunks: totalChunks,
+    file_checksum: fileChecksum
+  };
+  packets.push(startPacket);
+
+  // Frames 1..N: DATA_FRAME
   for (let i = 0; i < totalChunks; i++) {
     const start = i * chunkSize;
     const end = Math.min(start + chunkSize, totalBytes);
@@ -83,18 +152,28 @@ export function createFilePackets(
     const chunkCrc = crc32(chunkBytes);
     const chunkBase64 = bytesToBase64(chunkBytes);
 
-    packets.push({
-      v: PROTOCOL_VERSION,
-      id: transferId,
-      name: fileName,
-      size: totalBytes,
-      mime: fileMime || 'application/octet-stream',
-      total: totalChunks,
+    const dataPacket: DataFramePacket = {
+      type: 'DATA_FRAME',
+      protocol_version: PROTOCOL_VERSION,
+      transfer_id: transferId,
+      chunk_id: `${transferId}_c${i}`,
       seq: i,
-      crc: chunkCrc,
-      data: chunkBase64
-    });
+      total_chunks: totalChunks,
+      payload: chunkBase64,
+      crc: chunkCrc
+    };
+    packets.push(dataPacket);
   }
+
+  // Frame N+1: TRANSFER_END
+  const endPacket: TransferEndPacket = {
+    type: 'TRANSFER_END',
+    protocol_version: PROTOCOL_VERSION,
+    transfer_id: transferId,
+    total_chunks: totalChunks,
+    checksum: fileChecksum
+  };
+  packets.push(endPacket);
 
   return packets;
 }
@@ -102,49 +181,82 @@ export function createFilePackets(
 /**
  * Serialize packet into string for QR code embedding
  */
-export function serializePacket(packet: FramePacket): string {
+export function serializePacket(packet: ProtocolPacket): string {
   return PROTOCOL_HEADER + JSON.stringify(packet);
 }
 
 /**
- * Parse and validate QR string into FramePacket
+ * Parse and validate QR string into a ProtocolPacket
  */
-export function parsePacket(rawString: string): FramePacket | null {
+export function parsePacket(rawString: string): ProtocolPacket | null {
   if (!rawString || typeof rawString !== 'string') return null;
-  
+
   let jsonStr = rawString;
   if (rawString.startsWith(PROTOCOL_HEADER)) {
     jsonStr = rawString.slice(PROTOCOL_HEADER.length);
+  } else if (rawString.startsWith('OFT1:')) {
+    // Backward compatibility for Phase 1 packets
+    jsonStr = rawString.slice(5);
   } else {
-    // If user scanned raw JSON without header, check if it's our format
     if (!rawString.trim().startsWith('{')) return null;
   }
 
   try {
     const obj = JSON.parse(jsonStr);
-    if (
-      obj &&
-      typeof obj.v === 'number' &&
-      typeof obj.id === 'string' &&
-      typeof obj.name === 'string' &&
-      typeof obj.size === 'number' &&
-      typeof obj.total === 'number' &&
-      typeof obj.seq === 'number' &&
-      typeof obj.crc === 'number' &&
-      typeof obj.data === 'string'
-    ) {
-      // Validate CRC integrity
-      const chunkBytes = base64ToBytes(obj.data);
-      const computedCrc = crc32(chunkBytes);
-      if (computedCrc !== obj.crc) {
-        console.warn(`[Protocol] CRC mismatch for chunk ${obj.seq}: expected ${obj.crc}, computed ${computedCrc}`);
-        return null;
-      }
+    if (!obj || typeof obj !== 'object') return null;
 
-      return obj as FramePacket;
+    // Phase 2 packet handling
+    if (obj.type === 'TRANSFER_START') {
+      if (
+        typeof obj.transfer_id === 'string' &&
+        typeof obj.filename === 'string' &&
+        typeof obj.file_size === 'number' &&
+        typeof obj.total_chunks === 'number' &&
+        typeof obj.file_checksum === 'number'
+      ) {
+        return obj as TransferStartPacket;
+      }
+    } else if (obj.type === 'DATA_FRAME') {
+      if (
+        typeof obj.transfer_id === 'string' &&
+        typeof obj.seq === 'number' &&
+        typeof obj.payload === 'string' &&
+        typeof obj.crc === 'number'
+      ) {
+        // Validate chunk CRC
+        const chunkBytes = base64ToBytes(obj.payload);
+        const computedCrc = crc32(chunkBytes);
+        if (computedCrc !== obj.crc) {
+          console.warn(`[Protocol] Chunk CRC mismatch for seq ${obj.seq}: expected ${obj.crc}, got ${computedCrc}`);
+          return null;
+        }
+        return obj as DataFramePacket;
+      }
+    } else if (obj.type === 'TRANSFER_END') {
+      if (
+        typeof obj.transfer_id === 'string' &&
+        typeof obj.total_chunks === 'number' &&
+        typeof obj.checksum === 'number'
+      ) {
+        return obj as TransferEndPacket;
+      }
+    } else if (obj.v === 1 && typeof obj.id === 'string' && typeof obj.seq === 'number') {
+      // Legacy Phase 1 format adapter
+      const chunkBytes = base64ToBytes(obj.data);
+      if (crc32(chunkBytes) !== obj.crc) return null;
+      const converted: DataFramePacket = {
+        type: 'DATA_FRAME',
+        protocol_version: 1,
+        transfer_id: obj.id,
+        chunk_id: `${obj.id}_c${obj.seq}`,
+        seq: obj.seq,
+        total_chunks: obj.total,
+        payload: obj.data,
+        crc: obj.crc
+      };
+      return converted;
     }
-  } catch (err) {
-    // Not a valid packet JSON
+  } catch {
     return null;
   }
 
@@ -152,68 +264,152 @@ export function parsePacket(rawString: string): FramePacket | null {
 }
 
 export interface TransferProgress {
-  sessionId: string;
+  transferId: string;
   fileName: string;
+  fileExt: string;
   fileSize: number;
   mimeType: string;
   totalChunks: number;
   receivedCount: number;
   percentage: number;
   isComplete: boolean;
+  hasStartHeader: boolean;
+  hasEndMarker: boolean;
   missingChunks: number[];
   receivedIndices: number[];
+  rejectedCount: number;
+  lastRejectedTransferId: string | null;
+}
+
+export interface AddPacketResult {
+  accepted: boolean;
+  isNew: boolean;
+  isComplete: boolean;
+  rejectedReason?: string;
+  packetType: PacketType;
 }
 
 /**
- * Manages chunk collection and file reconstruction
+ * Manages chunk collection, strict session isolation, and verified file reconstruction
  */
 export class TransferAssembler {
-  private sessionId: string | null = null;
-  private fileName: string = '';
-  private fileSize: number = 0;
-  private mimeType: string = 'application/octet-stream';
-  private totalChunks: number = 0;
+  private activeTransferId: string | null = null;
+  private header: TransferStartPacket | null = null;
+  private endPacket: TransferEndPacket | null = null;
+  private expectedTotalChunks: number = 0;
+  private expectedFileSize: number = 0;
   private receivedChunks = new Map<number, Uint8Array>();
+  private rejectedCount: number = 0;
+  private lastRejectedTransferId: string | null = null;
 
   /**
    * Feed a decoded packet into assembler.
-   * Returns true if packet was accepted as a new valid chunk.
+   * Enforces session locking: rejects frames belonging to a different transfer ID!
    */
-  public addPacket(packet: FramePacket): { accepted: boolean; isNew: boolean; isComplete: boolean } {
-    // If new session or fresh start
-    if (!this.sessionId || this.sessionId !== packet.id) {
-      this.reset();
-      this.sessionId = packet.id;
-      this.fileName = packet.name;
-      this.fileSize = packet.size;
-      this.mimeType = packet.mime;
-      this.totalChunks = packet.total;
+  public addPacket(packet: ProtocolPacket): AddPacketResult {
+    const packetTransferId = packet.transfer_id;
+
+    // Reject frames belonging to a different transfer
+    if (this.activeTransferId !== null && packetTransferId !== this.activeTransferId) {
+      this.rejectedCount++;
+      this.lastRejectedTransferId = packetTransferId;
+      console.warn(`[Assembler] Rejected frame from foreign transfer ${packetTransferId} (active: ${this.activeTransferId})`);
+      return {
+        accepted: false,
+        isNew: false,
+        isComplete: false,
+        rejectedReason: `Belongs to different transfer ${packetTransferId} (locked to ${this.activeTransferId})`,
+        packetType: packet.type
+      };
     }
 
-    if (this.receivedChunks.has(packet.seq)) {
-      return { accepted: true, isNew: false, isComplete: this.isComplete() };
+    // First frame encountered locks the active session ID
+    if (this.activeTransferId === null) {
+      this.activeTransferId = packetTransferId;
     }
 
-    const chunkBytes = base64ToBytes(packet.data);
-    this.receivedChunks.set(packet.seq, chunkBytes);
+    let isNew = false;
+
+    if (packet.type === 'TRANSFER_START') {
+      if (!this.header) {
+        this.header = packet;
+        this.expectedTotalChunks = packet.total_chunks;
+        this.expectedFileSize = packet.file_size;
+        isNew = true;
+      }
+    } else if (packet.type === 'DATA_FRAME') {
+      if (this.expectedTotalChunks === 0 && packet.total_chunks > 0) {
+        this.expectedTotalChunks = packet.total_chunks;
+      }
+
+      if (!this.receivedChunks.has(packet.seq)) {
+        const chunkBytes = base64ToBytes(packet.payload);
+        this.receivedChunks.set(packet.seq, chunkBytes);
+        isNew = true;
+      }
+    } else if (packet.type === 'TRANSFER_END') {
+      if (!this.endPacket) {
+        this.endPacket = packet;
+        if (this.expectedTotalChunks === 0) {
+          this.expectedTotalChunks = packet.total_chunks;
+        }
+        isNew = true;
+      }
+    }
 
     return {
       accepted: true,
-      isNew: true,
-      isComplete: this.isComplete()
+      isNew,
+      isComplete: this.isComplete(),
+      packetType: packet.type
     };
   }
 
   public isComplete(): boolean {
-    return this.totalChunks > 0 && this.receivedChunks.size === this.totalChunks;
+    if (this.expectedTotalChunks === 0) return false;
+    if (this.receivedChunks.size !== this.expectedTotalChunks) return false;
+
+    // Check integrity against expected file checksum
+    const targetChecksum = this.header?.file_checksum ?? this.endPacket?.checksum;
+    if (targetChecksum !== undefined) {
+      const reconstructed = this.assembleBuffer();
+      if (!reconstructed) return false;
+      return crc32(reconstructed) === targetChecksum;
+    }
+
+    return true;
+  }
+
+  private assembleBuffer(): Uint8Array | null {
+    if (this.expectedTotalChunks === 0 || this.receivedChunks.size !== this.expectedTotalChunks) {
+      return null;
+    }
+
+    let calculatedSize = 0;
+    for (let i = 0; i < this.expectedTotalChunks; i++) {
+      const chunk = this.receivedChunks.get(i);
+      if (!chunk) return null;
+      calculatedSize += chunk.byteLength;
+    }
+
+    const fullBuffer = new Uint8Array(calculatedSize);
+    let offset = 0;
+    for (let i = 0; i < this.expectedTotalChunks; i++) {
+      const chunk = this.receivedChunks.get(i)!;
+      fullBuffer.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    return fullBuffer;
   }
 
   public getProgress(): TransferProgress {
     const receivedCount = this.receivedChunks.size;
-    const percentage = this.totalChunks > 0 ? Math.round((receivedCount / this.totalChunks) * 100) : 0;
-    
+    const total = this.expectedTotalChunks;
+    const percentage = total > 0 ? Math.round((receivedCount / total) * 100) : 0;
+
     const missingChunks: number[] = [];
-    for (let i = 0; i < this.totalChunks; i++) {
+    for (let i = 0; i < total; i++) {
       if (!this.receivedChunks.has(i)) {
         missingChunks.push(i);
       }
@@ -222,54 +418,69 @@ export class TransferAssembler {
     const receivedIndices = Array.from(this.receivedChunks.keys()).sort((a, b) => a - b);
 
     return {
-      sessionId: this.sessionId || '',
-      fileName: this.fileName,
-      fileSize: this.fileSize,
-      mimeType: this.mimeType,
-      totalChunks: this.totalChunks,
+      transferId: this.activeTransferId || '',
+      fileName: this.header?.filename || 'Receiving stream...',
+      fileExt: this.header?.file_ext || '',
+      fileSize: this.expectedFileSize,
+      mimeType: this.header?.mime_type || 'application/octet-stream',
+      totalChunks: total,
       receivedCount,
       percentage,
       isComplete: this.isComplete(),
+      hasStartHeader: this.header !== null,
+      hasEndMarker: this.endPacket !== null,
       missingChunks,
-      receivedIndices
+      receivedIndices,
+      rejectedCount: this.rejectedCount,
+      lastRejectedTransferId: this.lastRejectedTransferId
     };
   }
 
-  /**
-   * Reassemble the full file buffer and blob
-   */
-  public reconstruct(): { fileBuffer: Uint8Array; blob: Blob; fileName: string; mimeType: string } | null {
+  public reconstruct(): {
+    fileBuffer: Uint8Array;
+    blob: Blob;
+    fileName: string;
+    fileExt: string;
+    mimeType: string;
+    checksum: number;
+    transferId: string;
+  } | null {
     if (!this.isComplete()) return null;
 
-    const fullBuffer = new Uint8Array(this.fileSize);
-    let offset = 0;
+    const fullBuffer = this.assembleBuffer();
+    if (!fullBuffer) return null;
 
-    for (let i = 0; i < this.totalChunks; i++) {
-      const chunk = this.receivedChunks.get(i);
-      if (!chunk) {
-        console.error(`[Assembler] Missing chunk ${i} during reconstruction`);
-        return null;
-      }
-      fullBuffer.set(chunk, offset);
-      offset += chunk.byteLength;
+    const computedChecksum = crc32(fullBuffer);
+    const targetChecksum = this.header?.file_checksum ?? this.endPacket?.checksum;
+    if (targetChecksum !== undefined && computedChecksum !== targetChecksum) {
+      console.error(`[Assembler] Integrity mismatch: expected ${targetChecksum}, got ${computedChecksum}`);
+      return null;
     }
 
-    const blob = new Blob([fullBuffer], { type: this.mimeType || 'application/octet-stream' });
+    const fileName = this.header?.filename || `transfer_${this.activeTransferId}.bin`;
+    const mimeType = this.header?.mime_type || 'application/octet-stream';
+    const fileExt = this.header?.file_ext || getFileExtension(fileName);
+    const blob = new Blob([fullBuffer as BlobPart], { type: mimeType });
 
     return {
       fileBuffer: fullBuffer,
       blob,
-      fileName: this.fileName,
-      mimeType: this.mimeType
+      fileName,
+      fileExt,
+      mimeType,
+      checksum: computedChecksum,
+      transferId: this.activeTransferId || ''
     };
   }
 
   public reset() {
-    this.sessionId = null;
-    this.fileName = '';
-    this.fileSize = 0;
-    this.mimeType = 'application/octet-stream';
-    this.totalChunks = 0;
+    this.activeTransferId = null;
+    this.header = null;
+    this.endPacket = null;
+    this.expectedTotalChunks = 0;
+    this.expectedFileSize = 0;
     this.receivedChunks.clear();
+    this.rejectedCount = 0;
+    this.lastRejectedTransferId = null;
   }
 }

@@ -1,5 +1,11 @@
 import QRCode from 'qrcode';
-import { createFilePackets, serializePacket, FramePacket, DEFAULT_CHUNK_SIZE } from './protocol';
+import {
+  createTransferPackets,
+  serializePacket,
+  ProtocolPacket,
+  PacketType,
+  DEFAULT_CHUNK_SIZE
+} from './protocol';
 
 export type SenderState = 'IDLE' | 'LOADED' | 'TRANSMITTING' | 'PAUSED' | 'STOPPED';
 
@@ -7,21 +13,25 @@ export interface FrameInfo {
   frameIndex: number;
   totalFrames: number;
   loopCount: number;
+  frameType: PacketType;
+  transferId: string;
   fileName: string;
+  fileExt: string;
   fileSize: number;
   fps: number;
-  packet: FramePacket | null;
+  packet: ProtocolPacket | null;
 }
 
 export class OpticalSender {
   private file: File | null = null;
-  private packets: FramePacket[] = [];
+  private packets: ProtocolPacket[] = [];
   private currentFrameIndex: number = 0;
   private loopCount: number = 0;
   private state: SenderState = 'IDLE';
   private fps: number = 4; // Default 4 frames per second
   private timerId: number | null = null;
   private canvas: HTMLCanvasElement | null = null;
+  private transferId: string = '';
 
   private onStateChangeCb?: (state: SenderState) => void;
   private onFrameChangeCb?: (info: FrameInfo) => void;
@@ -54,7 +64,8 @@ export class OpticalSender {
     const arrayBuffer = await file.arrayBuffer();
     const uint8 = new Uint8Array(arrayBuffer);
 
-    this.packets = createFilePackets(uint8, file.name, file.type || 'application/octet-stream', chunkSize);
+    this.packets = createTransferPackets(uint8, file.name, file.type || 'application/octet-stream', chunkSize);
+    this.transferId = this.packets.length > 0 ? this.packets[0].transfer_id : '';
     this.setState('LOADED');
     await this.renderCurrentFrame();
   }
@@ -129,14 +140,18 @@ export class OpticalSender {
   }
 
   public getFrameInfo(): FrameInfo {
+    const curPacket = this.packets[this.currentFrameIndex] || null;
     return {
       frameIndex: this.currentFrameIndex,
       totalFrames: this.packets.length,
       loopCount: this.loopCount,
+      frameType: curPacket?.type || 'TRANSFER_START',
+      transferId: this.transferId,
       fileName: this.file?.name || '',
+      fileExt: this.file ? this.file.name.split('.').pop() || '' : '',
       fileSize: this.file?.size || 0,
       fps: this.fps,
-      packet: this.packets[this.currentFrameIndex] || null
+      packet: curPacket
     };
   }
 
@@ -168,7 +183,7 @@ export class OpticalSender {
       await QRCode.toCanvas(this.canvas, qrData, {
         errorCorrectionLevel: 'M',
         margin: 2,
-        scale: 6,
+        width: 360,
         color: {
           dark: '#000000',
           light: '#ffffff'

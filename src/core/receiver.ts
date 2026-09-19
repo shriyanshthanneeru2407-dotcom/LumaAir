@@ -1,12 +1,21 @@
 import jsQR from 'jsqr';
-import { parsePacket, TransferAssembler, TransferProgress, FramePacket } from './protocol';
+import {
+  parsePacket,
+  TransferAssembler,
+  TransferProgress,
+  ProtocolPacket,
+  AddPacketResult
+} from './protocol';
 
 export type ReceiverState = 'IDLE' | 'STARTING' | 'SCANNING' | 'RECEIVING' | 'COMPLETE' | 'ERROR';
 
 export interface ReconstructedFile {
   fileName: string;
+  fileExt: string;
   fileSize: number;
   mimeType: string;
+  transferId: string;
+  checksum: number;
   blob: Blob;
   downloadUrl: string;
   textPreview?: string;
@@ -15,8 +24,9 @@ export interface ReconstructedFile {
 
 export interface ReceiverCallbacks {
   onStateChange?: (state: ReceiverState, detail?: string) => void;
-  onProgress?: (progress: TransferProgress, latestPacket: FramePacket | null) => void;
+  onProgress?: (progress: TransferProgress, latestPacket: ProtocolPacket | null) => void;
   onFileComplete?: (file: ReconstructedFile) => void;
+  onFrameRejected?: (packet: ProtocolPacket, reason: string) => void;
   onError?: (err: Error) => void;
 }
 
@@ -33,7 +43,7 @@ export class OpticalReceiver {
   private reconstructedFile: ReconstructedFile | null = null;
   private barcodeDetector: any = null;
   private isDetecting = false;
-  private lastScannedSeq: number = -1;
+  private lastScannedKey: string = '';
 
   constructor(callbacks?: ReceiverCallbacks) {
     if (callbacks) this.callbacks = callbacks;
@@ -97,7 +107,8 @@ export class OpticalReceiver {
     this.setState('SCANNING');
 
     const scanStep = async () => {
-      if ((this.state as ReceiverState) === 'COMPLETE' || (this.state as ReceiverState) === 'IDLE') return;
+      const curState = this.state as ReceiverState;
+      if (curState === 'COMPLETE' || curState === 'IDLE') return;
       if (sourceCanvas.width > 0 && sourceCanvas.height > 0) {
         const srcCtx = sourceCanvas.getContext('2d');
         if (srcCtx) {
@@ -105,7 +116,8 @@ export class OpticalReceiver {
           await this.processImageData(imgData);
         }
       }
-      if ((this.state as ReceiverState) !== 'COMPLETE' && (this.state as ReceiverState) !== 'IDLE') {
+      const postState = this.state as ReceiverState;
+      if (postState !== 'COMPLETE' && postState !== 'IDLE') {
         this.scanIntervalId = window.setTimeout(scanStep, 60);
       }
     };
@@ -139,7 +151,7 @@ export class OpticalReceiver {
       URL.revokeObjectURL(this.reconstructedFile.downloadUrl);
     }
     this.reconstructedFile = null;
-    this.lastScannedSeq = -1;
+    this.lastScannedKey = '';
     if (this.state === 'COMPLETE') {
       this.setState('SCANNING');
       if (this.videoElement && this.mediaStream) {
@@ -248,38 +260,50 @@ export class OpticalReceiver {
     const packet = parsePacket(rawData);
     if (!packet) return;
 
-    // Avoid duplicate parsing notifications if it's the exact same seq scanned consecutively
-    const isConsecutiveDuplicate = this.lastScannedSeq === packet.seq;
-    this.lastScannedSeq = packet.seq;
+    const frameKey = `${packet.transfer_id}_${packet.type}_${(packet as any).seq ?? 0}`;
+    const isConsecutiveDuplicate = this.lastScannedKey === frameKey;
+    this.lastScannedKey = frameKey;
 
-    const result = this.assembler.addPacket(packet);
-    if (result.accepted) {
-      if (this.state !== 'RECEIVING' && this.state !== 'COMPLETE') {
-        this.setState('RECEIVING');
-      }
+    const result: AddPacketResult = this.assembler.addPacket(packet);
 
-      if (result.isNew || !isConsecutiveDuplicate) {
-        this.notifyProgress(packet);
+    if (!result.accepted) {
+      if (this.callbacks.onFrameRejected && result.rejectedReason) {
+        this.callbacks.onFrameRejected(packet, result.rejectedReason);
       }
+      this.notifyProgress(packet);
+      return;
+    }
 
-      if (result.isComplete && this.state !== 'COMPLETE') {
-        await this.handleCompletion();
-      }
+    if (this.state !== 'RECEIVING' && this.state !== 'COMPLETE') {
+      this.setState('RECEIVING');
+    }
+
+    if (result.isNew || !isConsecutiveDuplicate) {
+      this.notifyProgress(packet);
+    }
+
+    if (result.isComplete && (this.state as ReceiverState) !== 'COMPLETE') {
+      await this.handleCompletion();
     }
   }
 
   private async handleCompletion() {
     const reconstructed = this.assembler.reconstruct();
     if (!reconstructed) {
-      this.setState('ERROR', 'Reconstruction checksum failed');
+      this.setState('ERROR', 'Full file integrity checksum mismatch');
       return;
     }
 
     const downloadUrl = URL.createObjectURL(reconstructed.blob);
-    const isImage = reconstructed.mimeType.startsWith('image/');
+    const isImage = reconstructed.mimeType.startsWith('image/') ||
+      ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(reconstructed.fileExt);
 
     let textPreview: string | undefined = undefined;
-    if (reconstructed.mimeType.startsWith('text/') || reconstructed.fileBuffer.byteLength < 5000) {
+    if (
+      reconstructed.mimeType.startsWith('text/') ||
+      ['txt', 'md', 'json', 'csv', 'js', 'ts', 'html'].includes(reconstructed.fileExt) ||
+      reconstructed.fileBuffer.byteLength < 5000
+    ) {
       try {
         const text = new TextDecoder('utf-8', { fatal: true }).decode(reconstructed.fileBuffer);
         textPreview = text.length > 500 ? text.substring(0, 500) + '...' : text;
@@ -290,8 +314,11 @@ export class OpticalReceiver {
 
     this.reconstructedFile = {
       fileName: reconstructed.fileName,
+      fileExt: reconstructed.fileExt,
       fileSize: reconstructed.fileBuffer.byteLength,
       mimeType: reconstructed.mimeType,
+      transferId: reconstructed.transferId,
+      checksum: reconstructed.checksum,
       blob: reconstructed.blob,
       downloadUrl,
       textPreview,
@@ -313,7 +340,7 @@ export class OpticalReceiver {
     }
   }
 
-  private notifyProgress(latestPacket: FramePacket | null) {
+  private notifyProgress(latestPacket: ProtocolPacket | null) {
     if (this.callbacks.onProgress) {
       this.callbacks.onProgress(this.assembler.getProgress(), latestPacket);
     }

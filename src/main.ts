@@ -1,7 +1,7 @@
 import confetti from 'canvas-confetti';
 import { OpticalSender, SenderState, FrameInfo } from './core/sender';
 import { OpticalReceiver, ReceiverState, ReconstructedFile } from './core/receiver';
-import { TransferProgress, FramePacket } from './core/protocol';
+import { TransferProgress, ProtocolPacket } from './core/protocol';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -40,9 +40,13 @@ const fileDropzone = document.getElementById('file-dropzone') as HTMLDivElement;
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
 const senderFileInfo = document.getElementById('sender-file-info') as HTMLDivElement;
 const senderFileName = document.getElementById('sender-file-name') as HTMLSpanElement;
+const senderFileExt = document.getElementById('sender-file-ext') as HTMLSpanElement | null;
 const senderFileSize = document.getElementById('sender-file-size') as HTMLSpanElement;
+const senderTransferId = document.getElementById('sender-transfer-id') as HTMLSpanElement | null;
 const senderFrameCount = document.getElementById('sender-frame-count') as HTMLSpanElement;
+const senderTotalFramesDesc = document.getElementById('sender-total-frames-desc') as HTMLSpanElement | null;
 const senderCycleTime = document.getElementById('sender-cycle-time') as HTMLSpanElement;
+const senderFrameTypeBadge = document.getElementById('sender-frame-type-badge') as HTMLDivElement | null;
 
 const fpsSlider = document.getElementById('sender-fps-slider') as HTMLInputElement;
 const fpsLabel = document.getElementById('fps-label') as HTMLSpanElement;
@@ -134,11 +138,34 @@ function updateSenderFrameUI(info: FrameInfo) {
     senderFramePct.textContent = `${pct}%`;
     senderProgressFill.style.width = `${pct}%`;
     senderLoopCounter.textContent = `${info.loopCount}`;
+
+    if (senderFrameTypeBadge) {
+      senderFrameTypeBadge.className = 'badge-frame-type';
+      if (info.frameType === 'TRANSFER_START') {
+        senderFrameTypeBadge.classList.add('type-start');
+        senderFrameTypeBadge.textContent = '🚀 TRANSFER_START (Header)';
+      } else if (info.frameType === 'DATA_FRAME') {
+        senderFrameTypeBadge.classList.add('type-data');
+        const seq = (info.packet as any)?.seq ?? Math.max(0, info.frameIndex - 1);
+        const dataCount = Math.max(1, info.totalFrames - 2);
+        senderFrameTypeBadge.textContent = `📦 DATA_FRAME (Chunk ${seq + 1}/${dataCount})`;
+      } else if (info.frameType === 'TRANSFER_END') {
+        senderFrameTypeBadge.classList.add('type-end');
+        senderFrameTypeBadge.textContent = '🏁 TRANSFER_END (Verify)';
+      } else {
+        senderFrameTypeBadge.classList.add('type-idle');
+        senderFrameTypeBadge.textContent = 'Ready';
+      }
+    }
   } else {
     senderFrameIndicator.textContent = '0 / 0';
     senderFramePct.textContent = '0%';
     senderProgressFill.style.width = '0%';
     senderLoopCounter.textContent = '0';
+    if (senderFrameTypeBadge) {
+      senderFrameTypeBadge.className = 'badge-frame-type type-idle';
+      senderFrameTypeBadge.textContent = 'Waiting for file...';
+    }
   }
 }
 
@@ -167,15 +194,24 @@ async function handleFileSelected(file: File) {
     senderFileName.textContent = file.name;
     senderFileSize.textContent = formatBytes(file.size);
 
+    const ext = file.name.split('.').pop()?.toUpperCase() || 'BIN';
+    if (senderFileExt) senderFileExt.textContent = ext;
+
     if (file.size > 2 * 1024 * 1024) {
-      showSenderAlert(`Notice: Large file (${formatBytes(file.size)}). Optical transfer in Phase 1 is optimized for smaller files (< 1MB). It will require many frames.`, 'warning');
+      showSenderAlert(`Notice: Large file (${formatBytes(file.size)}). Optical transfer works best with smaller files (< 1MB).`, 'warning');
     }
 
     const chunkSize = parseInt(chunkSizeSelect.value, 10);
     await sender.loadFile(file, chunkSize);
 
     const info = sender.getFrameInfo();
-    senderFrameCount.textContent = `${info.totalFrames} chunks`;
+    const dataChunks = Math.max(1, info.totalFrames - 2);
+    senderFrameCount.textContent = `${dataChunks} data chunks (${chunkSize}B/chunk)`;
+    if (senderTransferId) senderTransferId.textContent = `#${info.transferId}`;
+    if (senderTotalFramesDesc) {
+      senderTotalFramesDesc.textContent = `${info.totalFrames} frames [1 START + ${dataChunks} DATA + 1 END]`;
+    }
+
     const estSeconds = (info.totalFrames / sender.getFps()).toFixed(1);
     senderCycleTime.textContent = `~${estSeconds}s / cycle`;
   } catch (err: any) {
@@ -294,6 +330,9 @@ const receiverStatusDot = document.getElementById('receiver-status-dot') as HTML
 const receiverStatusText = document.getElementById('receiver-status-text') as HTMLSpanElement;
 const btnReceiverReset = document.getElementById('btn-receiver-reset') as HTMLButtonElement;
 
+const recSessionId = document.getElementById('rec-session-id') as HTMLSpanElement | null;
+const recProtocolStatus = document.getElementById('rec-protocol-status') as HTMLSpanElement | null;
+const recRejectedAlert = document.getElementById('rec-rejected-alert') as HTMLDivElement | null;
 const recFileName = document.getElementById('rec-file-name') as HTMLSpanElement;
 const recFileSize = document.getElementById('rec-file-size') as HTMLSpanElement;
 const recChunkCount = document.getElementById('rec-chunk-count') as HTMLSpanElement;
@@ -342,8 +381,14 @@ const receiver = new OpticalReceiver({
         break;
     }
   },
-  onProgress: (progress: TransferProgress, latestPacket: FramePacket | null) => {
+  onProgress: (progress: TransferProgress, latestPacket: ProtocolPacket | null) => {
     updateReceiverDashboard(progress, latestPacket);
+  },
+  onFrameRejected: (_packet: ProtocolPacket, reason: string) => {
+    if (recRejectedAlert) {
+      recRejectedAlert.classList.remove('hidden');
+      recRejectedAlert.textContent = `⚠️ Frame Rejected: ${reason}`;
+    }
   },
   onFileComplete: (reconstructed: ReconstructedFile) => {
     displayReconstructedFile(reconstructed);
@@ -353,7 +398,32 @@ const receiver = new OpticalReceiver({
   }
 });
 
-function updateReceiverDashboard(progress: TransferProgress, _latestPacket: FramePacket | null) {
+function updateReceiverDashboard(progress: TransferProgress, _latestPacket: ProtocolPacket | null) {
+  if (recSessionId) {
+    recSessionId.textContent = progress.transferId ? `#${progress.transferId} (Locked)` : 'Unlocked (Awaiting Stream)';
+  }
+
+  if (recProtocolStatus) {
+    if (progress.isComplete) {
+      recProtocolStatus.textContent = 'Verified & Complete ✓';
+      recProtocolStatus.className = 'info-value font-mono text-success';
+    } else if (progress.hasStartHeader && progress.hasEndMarker) {
+      recProtocolStatus.textContent = 'Header & End verified, catching chunks...';
+      recProtocolStatus.className = 'info-value font-mono text-cyan';
+    } else if (progress.hasStartHeader) {
+      recProtocolStatus.textContent = 'Header locked, receiving data frames...';
+      recProtocolStatus.className = 'info-value font-mono text-cyan';
+    } else {
+      recProtocolStatus.textContent = 'Capturing chunks, awaiting header...';
+      recProtocolStatus.className = 'info-value font-mono text-warning';
+    }
+  }
+
+  if (progress.rejectedCount > 0 && recRejectedAlert) {
+    recRejectedAlert.classList.remove('hidden');
+    recRejectedAlert.textContent = `⚠️ Rejected ${progress.rejectedCount} foreign frame(s) from different transfer (#${progress.lastRejectedTransferId})`;
+  }
+
   if (progress.totalChunks > 0) {
     recFileName.textContent = progress.fileName;
     recFileSize.textContent = formatBytes(progress.fileSize);
