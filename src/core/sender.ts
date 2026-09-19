@@ -343,7 +343,15 @@ export class OpticalSender {
     const startIndex = curPage * pageSize;
 
     this.gridContainer.className = `qr-grid-matrix grid-${this.gridMode}`;
+    this.gridContainer.removeAttribute('style');
     this.gridContainer.innerHTML = '';
+
+    if (this.gridMode === 'custom') {
+      const cols = Math.ceil(Math.sqrt(pageSize));
+      const rows = Math.ceil(pageSize / cols);
+      this.gridContainer.style.setProperty('grid-template-columns', `repeat(${cols}, 1fr)`, 'important');
+      this.gridContainer.style.setProperty('grid-template-rows', `repeat(${rows}, 1fr)`, 'important');
+    }
 
     const slotRenderPromises: Promise<void>[] = [];
 
@@ -394,7 +402,6 @@ export class OpticalSender {
           qrMargin = 2;
         } else if (this.gridMode === 'custom') {
           const cols = Math.ceil(Math.sqrt(pageSize));
-          this.gridContainer.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
           qrWidth = Math.max(90, Math.min(240, Math.floor(520 / cols)));
           qrMargin = cols > 3 ? 1 : 2;
         }
@@ -447,8 +454,8 @@ export class OpticalSender {
 
     if (this.gridContainer) {
       this.gridContainer.className = 'qr-grid-matrix grid-pairing';
+      this.gridContainer.removeAttribute('style');
       this.gridContainer.innerHTML = '';
-      this.gridContainer.style.gridTemplateColumns = '1fr';
 
       const pairCard = document.createElement('div');
       pairCard.className = 'pairing-card-inner';
