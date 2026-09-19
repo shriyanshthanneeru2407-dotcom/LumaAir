@@ -36,6 +36,7 @@ navTabs.forEach(tab => {
 
 // ================= SENDER CONTROLLER =================
 const senderCanvas = document.getElementById('sender-canvas') as HTMLCanvasElement;
+const qrGridContainer = document.getElementById('qr-grid-container') as HTMLDivElement;
 const fileDropzone = document.getElementById('file-dropzone') as HTMLDivElement;
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
 const senderFileInfo = document.getElementById('sender-file-info') as HTMLDivElement;
@@ -47,6 +48,14 @@ const senderFrameCount = document.getElementById('sender-frame-count') as HTMLSp
 const senderTotalFramesDesc = document.getElementById('sender-total-frames-desc') as HTMLSpanElement | null;
 const senderCycleTime = document.getElementById('sender-cycle-time') as HTMLSpanElement;
 const senderFrameTypeBadge = document.getElementById('sender-frame-type-badge') as HTMLDivElement | null;
+const senderPageBadge = document.getElementById('sender-page-badge') as HTMLSpanElement | null;
+const senderSlotsIndicator = document.getElementById('sender-slots-indicator') as HTMLSpanElement | null;
+
+const modeTabs = document.querySelectorAll<HTMLButtonElement>('.mode-tab');
+const modeHintText = document.getElementById('mode-hint-text') as HTMLParagraphElement | null;
+const timingLabelText = document.getElementById('timing-label-text') as HTMLSpanElement | null;
+const timingSliderTicks = document.getElementById('timing-slider-ticks') as HTMLDivElement | null;
+const scanInstructionText = document.getElementById('scan-instruction-text') as HTMLParagraphElement | null;
 
 const fpsSlider = document.getElementById('sender-fps-slider') as HTMLInputElement;
 const fpsLabel = document.getElementById('fps-label') as HTMLSpanElement;
@@ -62,7 +71,7 @@ const senderStatusDot = document.getElementById('sender-status-dot') as HTMLSpan
 const senderStatusText = document.getElementById('sender-status-text') as HTMLSpanElement;
 const senderPlaceholder = document.getElementById('sender-placeholder') as HTMLDivElement;
 const senderFrameIndicator = document.getElementById('sender-frame-indicator') as HTMLSpanElement;
-const senderFramePct = document.getElementById('sender-frame-pct') as HTMLSpanElement;
+const senderFramePct = document.getElementById('sender-frame-pct') as HTMLSpanElement | null;
 const senderLoopCounter = document.getElementById('sender-loop-counter') as HTMLSpanElement;
 const senderProgressFill = document.getElementById('sender-progress-fill') as HTMLDivElement;
 
@@ -70,7 +79,10 @@ let currentLoadedFile: File | null = null;
 
 const sender = new OpticalSender({
   canvas: senderCanvas,
-  fps: parseInt(fpsSlider.value, 10),
+  gridContainer: qrGridContainer,
+  fps: 4,
+  pageHoldSeconds: 1.5,
+  gridMode: '4x4',
   onStateChange: updateSenderStateUI,
   onFrameChange: updateSenderFrameUI
 });
@@ -133,33 +145,57 @@ function updateSenderStateUI(state: SenderState) {
 
 function updateSenderFrameUI(info: FrameInfo) {
   if (info.totalFrames > 0) {
-    senderFrameIndicator.textContent = `${info.frameIndex + 1} / ${info.totalFrames}`;
+    const mode = info.gridMode;
+    if (mode === '1x1') {
+      senderFrameIndicator.textContent = `${info.frameIndex + 1} / ${info.totalFrames}`;
+      if (senderSlotsIndicator) senderSlotsIndicator.textContent = `Frame ${info.frameIndex + 1}`;
+      if (senderPageBadge) senderPageBadge.textContent = `Frame ${info.frameIndex + 1} / ${info.totalFrames}`;
+    } else {
+      senderFrameIndicator.textContent = `Page ${info.currentPage + 1} / ${info.totalPages}`;
+      if (senderSlotsIndicator) {
+        senderSlotsIndicator.textContent = `${info.activeSlotsCount} active, ${info.emptySlotsCount} empty`;
+      }
+      if (senderPageBadge) {
+        senderPageBadge.textContent = `Page ${info.currentPage + 1} of ${info.totalPages}`;
+      }
+    }
+
     const pct = Math.round(((info.frameIndex + 1) / info.totalFrames) * 100);
-    senderFramePct.textContent = `${pct}%`;
+    if (senderFramePct) senderFramePct.textContent = `${pct}%`;
     senderProgressFill.style.width = `${pct}%`;
     senderLoopCounter.textContent = `${info.loopCount}`;
 
     if (senderFrameTypeBadge) {
       senderFrameTypeBadge.className = 'badge-frame-type';
-      if (info.frameType === 'TRANSFER_START') {
-        senderFrameTypeBadge.classList.add('type-start');
-        senderFrameTypeBadge.textContent = '🚀 TRANSFER_START (Header)';
-      } else if (info.frameType === 'DATA_FRAME') {
+      if (mode === '4x4') {
         senderFrameTypeBadge.classList.add('type-data');
-        const seq = (info.packet as any)?.seq ?? Math.max(0, info.frameIndex - 1);
-        const dataCount = Math.max(1, info.totalFrames - 2);
-        senderFrameTypeBadge.textContent = `📦 DATA_FRAME (Chunk ${seq + 1}/${dataCount})`;
-      } else if (info.frameType === 'TRANSFER_END') {
-        senderFrameTypeBadge.classList.add('type-end');
-        senderFrameTypeBadge.textContent = '🏁 TRANSFER_END (Verify)';
+        senderFrameTypeBadge.textContent = `⚡ 16-QR MATRIX (Page ${info.currentPage + 1}/${info.totalPages})`;
+      } else if (mode === '2x2') {
+        senderFrameTypeBadge.classList.add('type-data');
+        senderFrameTypeBadge.textContent = `⚡ 2×2 GRID (Page ${info.currentPage + 1}/${info.totalPages})`;
       } else {
-        senderFrameTypeBadge.classList.add('type-idle');
-        senderFrameTypeBadge.textContent = 'Ready';
+        if (info.frameType === 'TRANSFER_START') {
+          senderFrameTypeBadge.classList.add('type-start');
+          senderFrameTypeBadge.textContent = '🚀 TRANSFER_START (Header)';
+        } else if (info.frameType === 'DATA_FRAME') {
+          senderFrameTypeBadge.classList.add('type-data');
+          const seq = (info.packet as any)?.seq ?? Math.max(0, info.frameIndex - 1);
+          const dataCount = Math.max(1, info.totalFrames - 2);
+          senderFrameTypeBadge.textContent = `📦 DATA_FRAME (Chunk ${seq + 1}/${dataCount})`;
+        } else if (info.frameType === 'TRANSFER_END') {
+          senderFrameTypeBadge.classList.add('type-end');
+          senderFrameTypeBadge.textContent = '🏁 TRANSFER_END (Verify)';
+        } else {
+          senderFrameTypeBadge.classList.add('type-idle');
+          senderFrameTypeBadge.textContent = 'Ready';
+        }
       }
     }
   } else {
     senderFrameIndicator.textContent = '0 / 0';
-    senderFramePct.textContent = '0%';
+    if (senderSlotsIndicator) senderSlotsIndicator.textContent = '-';
+    if (senderPageBadge) senderPageBadge.textContent = 'Page 0 / 0';
+    if (senderFramePct) senderFramePct.textContent = '0%';
     senderProgressFill.style.width = '0%';
     senderLoopCounter.textContent = '0';
     if (senderFrameTypeBadge) {
@@ -212,13 +248,86 @@ async function handleFileSelected(file: File) {
       senderTotalFramesDesc.textContent = `${info.totalFrames} frames [1 START + ${dataChunks} DATA + 1 END]`;
     }
 
-    const estSeconds = (info.totalFrames / sender.getFps()).toFixed(1);
-    senderCycleTime.textContent = `~${estSeconds}s / cycle`;
+    if (info.gridMode === '1x1') {
+      const estSeconds = (info.totalFrames / sender.getFps()).toFixed(1);
+      senderCycleTime.textContent = `~${estSeconds}s / cycle`;
+    } else {
+      const estSeconds = (info.totalPages * sender.getPageHoldSeconds()).toFixed(1);
+      senderCycleTime.textContent = `~${estSeconds}s / cycle (${info.totalPages} page${info.totalPages > 1 ? 's' : ''})`;
+    }
   } catch (err: any) {
     console.error('Failed to load file:', err);
     showSenderAlert(`Error loading file: ${err.message || err}`, 'error');
   }
 }
+
+// Optical Transmission Mode Tabs
+function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4') {
+  if (mode === '1x1') {
+    if (timingLabelText) timingLabelText.textContent = 'Transmission Speed:';
+    fpsLabel.textContent = `${sender.getFps()} FPS`;
+    fpsSlider.min = '1';
+    fpsSlider.max = '15';
+    fpsSlider.step = '1';
+    fpsSlider.value = `${sender.getFps()}`;
+    if (timingSliderTicks) {
+      timingSliderTicks.innerHTML = `
+        <span>1 (Slow/Stable)</span>
+        <span>4 (Balanced)</span>
+        <span>15 (Turbo)</span>
+      `;
+    }
+    if (modeHintText) {
+      modeHintText.textContent = 'Sequential single QR flashing at high speed. Up to 15 FPS.';
+    }
+    if (scanInstructionText) {
+      scanInstructionText.textContent = 'Point the receiving device at the screen. Single QR flashes continuously.';
+    }
+  } else {
+    if (timingLabelText) timingLabelText.textContent = 'Page Hold Duration:';
+    fpsLabel.textContent = `${sender.getPageHoldSeconds().toFixed(1)}s / page`;
+    fpsSlider.min = '5';
+    fpsSlider.max = '35';
+    fpsSlider.step = '1';
+    fpsSlider.value = `${Math.round(sender.getPageHoldSeconds() * 10)}`;
+    if (timingSliderTicks) {
+      timingSliderTicks.innerHTML = `
+        <span>0.5s (Fast)</span>
+        <span>1.5s (Optimal)</span>
+        <span>3.5s (Steady)</span>
+      `;
+    }
+    if (modeHintText) {
+      modeHintText.textContent = mode === '4x4'
+        ? 'Displays 16 QR codes in a square. Mobile scans all 16 at once; extra boxes stay empty!'
+        : 'Displays 4 QR codes in a 2×2 grid for smaller screens or mid-range phone cameras.';
+    }
+    if (scanInstructionText) {
+      scanInstructionText.textContent = mode === '4x4'
+        ? 'Point the receiving phone camera at the 16-QR matrix. Mobile scans all 16 codes at once. Extra boxes stay empty.'
+        : 'Point camera at the 2×2 grid to capture 4 chunks simultaneously.';
+    }
+  }
+  const info = sender.getFrameInfo();
+  if (info.totalFrames > 0) {
+    if (mode === '1x1') {
+      senderCycleTime.textContent = `~${(info.totalFrames / sender.getFps()).toFixed(1)}s / cycle`;
+    } else {
+      senderCycleTime.textContent = `~${(info.totalPages * sender.getPageHoldSeconds()).toFixed(1)}s / cycle (${info.totalPages} pages)`;
+    }
+  }
+}
+
+modeTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    const mode = tab.getAttribute('data-mode') as '1x1' | '2x2' | '4x4';
+    if (!mode) return;
+    modeTabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    sender.setGridMode(mode);
+    updateTimingControlsForMode(mode);
+  });
+});
 
 // Window-level drag protection to prevent opening dropped files as browser URLs
 window.addEventListener('dragover', (e) => e.preventDefault());
@@ -302,12 +411,23 @@ btnSenderPrev.addEventListener('click', () => sender.prevFrame());
 btnSenderNext.addEventListener('click', () => sender.nextFrame());
 
 fpsSlider.addEventListener('input', () => {
-  const fps = parseInt(fpsSlider.value, 10);
-  fpsLabel.textContent = `${fps} FPS`;
-  sender.setFps(fps);
+  const mode = sender.getGridMode();
+  if (mode === '1x1') {
+    const fps = parseInt(fpsSlider.value, 10);
+    fpsLabel.textContent = `${fps} FPS`;
+    sender.setFps(fps);
+  } else {
+    const sec = parseInt(fpsSlider.value, 10) / 10;
+    fpsLabel.textContent = `${sec.toFixed(1)}s / page`;
+    sender.setPageHoldSeconds(sec);
+  }
   const info = sender.getFrameInfo();
   if (info.totalFrames > 0) {
-    senderCycleTime.textContent = `~${(info.totalFrames / fps).toFixed(1)}s / cycle`;
+    if (mode === '1x1') {
+      senderCycleTime.textContent = `~${(info.totalFrames / sender.getFps()).toFixed(1)}s / cycle`;
+    } else {
+      senderCycleTime.textContent = `~${(info.totalPages * sender.getPageHoldSeconds()).toFixed(1)}s / cycle (${info.totalPages} pages)`;
+    }
   }
 });
 
@@ -325,6 +445,8 @@ const btnCameraFlip = document.getElementById('btn-camera-flip') as HTMLButtonEl
 const cameraSelect = document.getElementById('camera-select') as HTMLSelectElement;
 const cameraPlaceholder = document.getElementById('camera-placeholder') as HTMLDivElement;
 const viewfinderOverlay = document.getElementById('viewfinder-overlay') as HTMLDivElement;
+const recBatchBadge = document.getElementById('rec-batch-badge') as HTMLDivElement | null;
+const recMultiIngestion = document.getElementById('rec-multi-ingestion') as HTMLSpanElement | null;
 
 const receiverStatusDot = document.getElementById('receiver-status-dot') as HTMLSpanElement;
 const receiverStatusText = document.getElementById('receiver-status-text') as HTMLSpanElement;
@@ -350,6 +472,7 @@ const btnReceiveAnother = document.getElementById('btn-receive-another') as HTML
 let isCameraActive = false;
 let currentFacingMode: 'environment' | 'user' = 'environment';
 let availableCameras: MediaDeviceInfo[] = [];
+let batchBadgeTimeout: number | null = null;
 
 const receiver = new OpticalReceiver({
   onStateChange: (state: ReceiverState, detail?: string) => {
@@ -388,6 +511,19 @@ const receiver = new OpticalReceiver({
     if (recRejectedAlert) {
       recRejectedAlert.classList.remove('hidden');
       recRejectedAlert.textContent = `⚠️ Frame Rejected: ${reason}`;
+    }
+  },
+  onBatchScanned: (acceptedInFrame: number, totalFoundInFrame: number) => {
+    if (recMultiIngestion) {
+      recMultiIngestion.textContent = `⚡ +${acceptedInFrame} chunks ingested (${totalFoundInFrame} visible)`;
+    }
+    if (recBatchBadge && totalFoundInFrame > 1) {
+      recBatchBadge.textContent = `⚡ +${totalFoundInFrame} QRs Scanned at Once!`;
+      recBatchBadge.classList.remove('hidden');
+      if (batchBadgeTimeout !== null) clearTimeout(batchBadgeTimeout);
+      batchBadgeTimeout = window.setTimeout(() => {
+        recBatchBadge.classList.add('hidden');
+      }, 1400);
     }
   },
   onFileComplete: (reconstructed: ReconstructedFile) => {

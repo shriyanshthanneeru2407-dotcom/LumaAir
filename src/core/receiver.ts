@@ -27,6 +27,7 @@ export interface ReceiverCallbacks {
   onProgress?: (progress: TransferProgress, latestPacket: ProtocolPacket | null) => void;
   onFileComplete?: (file: ReconstructedFile) => void;
   onFrameRejected?: (packet: ProtocolPacket, reason: string) => void;
+  onBatchScanned?: (acceptedInFrame: number, totalFoundInFrame: number) => void;
   onError?: (err: Error) => void;
 }
 
@@ -109,6 +110,25 @@ export class OpticalReceiver {
     const scanStep = async () => {
       const curState = this.state as ReceiverState;
       if (curState === 'COMPLETE' || curState === 'IDLE') return;
+
+      if (this.barcodeDetector) {
+        try {
+          const barcodes = await this.barcodeDetector.detect(sourceCanvas);
+          if (barcodes && barcodes.length > 0) {
+            let acceptedCount = 0;
+            for (const barcode of barcodes) {
+              if (barcode.rawValue) {
+                const accepted = await this.handleRawQrData(barcode.rawValue);
+                if (accepted) acceptedCount++;
+              }
+            }
+            if (this.callbacks.onBatchScanned) {
+              this.callbacks.onBatchScanned(acceptedCount, barcodes.length);
+            }
+          }
+        } catch {}
+      }
+
       if (sourceCanvas.width > 0 && sourceCanvas.height > 0) {
         const srcCtx = sourceCanvas.getContext('2d');
         if (srcCtx) {
@@ -214,12 +234,17 @@ export class OpticalReceiver {
       try {
         const barcodes = await this.barcodeDetector.detect(this.videoElement);
         if (barcodes && barcodes.length > 0) {
+          let acceptedCount = 0;
           for (const barcode of barcodes) {
             if (barcode.rawValue) {
-              await this.handleRawQrData(barcode.rawValue);
-              return;
+              const accepted = await this.handleRawQrData(barcode.rawValue);
+              if (accepted) acceptedCount++;
             }
           }
+          if (this.callbacks.onBatchScanned) {
+            this.callbacks.onBatchScanned(acceptedCount, barcodes.length);
+          }
+          return;
         }
       } catch {
         // Fall back to jsQR
@@ -247,18 +272,47 @@ export class OpticalReceiver {
   }
 
   private async processImageData(imgData: ImageData) {
+    let detected = 0;
     const code = jsQR(imgData.data, imgData.width, imgData.height, {
       inversionAttempts: 'dontInvert'
     });
 
     if (code && code.data) {
-      await this.handleRawQrData(code.data);
+      const acc = await this.handleRawQrData(code.data);
+      if (acc) detected++;
+    }
+
+    // Quadrant scanning for multi-QR fallback when BarcodeDetector is unavailable
+    if (this.scanCtx && imgData.width >= 200 && imgData.height >= 200) {
+      const halfW = Math.floor(imgData.width / 2);
+      const halfH = Math.floor(imgData.height / 2);
+      const quadrants = [
+        { x: 0, y: 0 },
+        { x: halfW, y: 0 },
+        { x: 0, y: halfH },
+        { x: halfW, y: halfH }
+      ];
+
+      for (const q of quadrants) {
+        try {
+          const qImg = this.scanCtx.getImageData(q.x, q.y, halfW, halfH);
+          const qCode = jsQR(qImg.data, halfW, halfH, { inversionAttempts: 'dontInvert' });
+          if (qCode && qCode.data && qCode.data !== code?.data) {
+            const acc = await this.handleRawQrData(qCode.data);
+            if (acc) detected++;
+          }
+        } catch {}
+      }
+    }
+
+    if (detected > 1 && this.callbacks.onBatchScanned) {
+      this.callbacks.onBatchScanned(detected, detected);
     }
   }
 
-  private async handleRawQrData(rawData: string) {
+  private async handleRawQrData(rawData: string): Promise<boolean> {
     const packet = parsePacket(rawData);
-    if (!packet) return;
+    if (!packet) return false;
 
     const frameKey = `${packet.transfer_id}_${packet.type}_${(packet as any).seq ?? 0}`;
     const isConsecutiveDuplicate = this.lastScannedKey === frameKey;
@@ -271,7 +325,7 @@ export class OpticalReceiver {
         this.callbacks.onFrameRejected(packet, result.rejectedReason);
       }
       this.notifyProgress(packet);
-      return;
+      return false;
     }
 
     if (this.state !== 'RECEIVING' && this.state !== 'COMPLETE') {
@@ -285,6 +339,7 @@ export class OpticalReceiver {
     if (result.isComplete && (this.state as ReceiverState) !== 'COMPLETE') {
       await this.handleCompletion();
     }
+    return true;
   }
 
   private async handleCompletion() {

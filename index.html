@@ -119,15 +119,38 @@
 
               <!-- Transmission Settings -->
               <div class="settings-group">
+                <!-- Optical Layout Mode Selector -->
                 <div class="setting-item">
-                  <label for="sender-fps-slider">
-                    Transmission Speed: <span id="fps-label" class="setting-val">4 FPS</span>
+                  <label class="setting-title-label">Optical Transmission Mode:</label>
+                  <div class="mode-selector-tabs" id="grid-mode-selector">
+                    <button type="button" class="mode-tab active" data-mode="4x4">
+                      <span class="mode-title">4×4 Big Square</span>
+                      <span class="mode-badge">16 QRs • Simultaneous</span>
+                    </button>
+                    <button type="button" class="mode-tab" data-mode="2x2">
+                      <span class="mode-title">2×2 Grid</span>
+                      <span class="mode-badge">4 QRs</span>
+                    </button>
+                    <button type="button" class="mode-tab" data-mode="1x1">
+                      <span class="mode-title">1×1 Single QR</span>
+                      <span class="mode-badge">Flashing</span>
+                    </button>
+                  </div>
+                  <p class="mode-hint" id="mode-hint-text">
+                    Displays 16 QR codes in a square. Mobile scans all 16 at once; extra boxes stay empty!
+                  </p>
+                </div>
+
+                <div class="setting-item" id="timing-setting-item">
+                  <label for="sender-timing-slider">
+                    <span id="timing-label-text">Page Hold Duration:</span>
+                    <span id="fps-label" class="setting-val">1.5s / page</span>
                   </label>
-                  <input type="range" id="sender-fps-slider" min="1" max="10" value="4" step="1" />
-                  <div class="slider-ticks">
-                    <span>1 (Slow/Stable)</span>
-                    <span>4 (Balanced)</span>
-                    <span>10 (Fast)</span>
+                  <input type="range" id="sender-fps-slider" min="5" max="35" value="15" step="1" />
+                  <div class="slider-ticks" id="timing-slider-ticks">
+                    <span>0.5s (Fast)</span>
+                    <span>1.5s (Optimal)</span>
+                    <span>3.5s (Steady)</span>
                   </div>
                 </div>
 
@@ -159,8 +182,8 @@
 
               <!-- Step Controls -->
               <div class="step-controls">
-                <button id="btn-sender-prev" class="btn btn-sm btn-ghost" disabled title="Previous frame">⏮ Prev Frame</button>
-                <button id="btn-sender-next" class="btn btn-sm btn-ghost" disabled title="Next frame">Next Frame ⏭</button>
+                <button id="btn-sender-prev" class="btn btn-sm btn-ghost" disabled title="Previous page or frame">⏮ Prev</button>
+                <button id="btn-sender-next" class="btn btn-sm btn-ghost" disabled title="Next page or frame">Next ⏭</button>
               </div>
             </div>
 
@@ -176,30 +199,37 @@
 
               <div class="qr-stage">
                 <div class="frame-type-bar">
-                  <span class="info-label">Active Packet:</span>
-                  <span id="sender-frame-type-badge" class="badge-frame-type type-idle">Waiting for file...</span>
+                  <div class="frame-bar-left">
+                    <span class="info-label">Active:</span>
+                    <span id="sender-frame-type-badge" class="badge-frame-type type-idle">Waiting for file...</span>
+                  </div>
+                  <div class="frame-bar-right">
+                    <span id="sender-page-badge" class="badge-page-indicator">Page 0 / 0</span>
+                  </div>
                 </div>
 
                 <div class="qr-frame-wrapper" id="qr-wrapper">
-                  <canvas id="sender-canvas" width="380" height="380"></canvas>
+                  <div id="qr-grid-container" class="qr-grid-matrix grid-4x4"></div>
+                  <canvas id="sender-canvas" width="380" height="380" class="hidden"></canvas>
                   <div id="sender-placeholder" class="qr-placeholder">
                     <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
                       <rect width="18" height="18" x="3" y="3" rx="2"/>
                       <path d="M8 8h8v8H8z"/>
                     </svg>
-                    <p>Select a file to generate QR sequence</p>
+                    <p>Select a file to generate 16-QR matrix</p>
+                    <span class="placeholder-sub">Mobile camera scans all 16 QR codes at once!</span>
                   </div>
                 </div>
 
                 <!-- Live Frame Telemetry -->
                 <div class="telemetry-bar">
                   <div class="telemetry-item">
-                    <span class="telemetry-label">Frame:</span>
+                    <span class="telemetry-label">Frame/Page:</span>
                     <span id="sender-frame-indicator" class="telemetry-val font-mono">0 / 0</span>
                   </div>
                   <div class="telemetry-item">
-                    <span class="telemetry-label">Progress:</span>
-                    <span id="sender-frame-pct" class="telemetry-val font-mono">0%</span>
+                    <span class="telemetry-label">Slots:</span>
+                    <span id="sender-slots-indicator" class="telemetry-val font-mono">-</span>
                   </div>
                   <div class="telemetry-item">
                     <span class="telemetry-label">Cycles:</span>
@@ -211,8 +241,8 @@
                   <div id="sender-progress-fill" class="progress-fill" style="width: 0%"></div>
                 </div>
 
-                <p class="scan-instruction">
-                  Point the receiving device's camera at this screen. The transmission cycles continuously until all frames are captured.
+                <p class="scan-instruction" id="scan-instruction-text">
+                  Point the receiving phone's camera at the 16-QR matrix. Modern cameras capture all 16 codes in a single frame. Extra boxes stay empty.
                 </p>
               </div>
             </div>
@@ -258,7 +288,8 @@
                     <div class="reticle-corner br"></div>
                     <div class="reticle-scanner"></div>
                   </div>
-                  <p class="reticle-prompt">Align QR code inside box</p>
+                  <div id="rec-batch-badge" class="batch-capture-badge hidden">⚡ +16 Chunks Scanned at Once!</div>
+                  <p class="reticle-prompt" id="reticle-prompt-text">Align QR matrix or code inside viewfinder</p>
                 </div>
                 <div id="camera-placeholder" class="camera-placeholder">
                   <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -286,6 +317,10 @@
                 <div class="file-info-row">
                   <span class="info-label">Protocol Status:</span>
                   <span id="rec-protocol-status" class="info-value font-mono text-muted">Awaiting Header</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Multi-QR Ingestion:</span>
+                  <span id="rec-multi-ingestion" class="info-value font-mono text-cyan">Multi-Frame Scanner Ready</span>
                 </div>
                 <div class="file-info-row">
                   <span class="info-label">File:</span>

@@ -8,6 +8,7 @@ import {
 } from './protocol';
 
 export type SenderState = 'IDLE' | 'LOADED' | 'TRANSMITTING' | 'PAUSED' | 'STOPPED';
+export type GridMode = '1x1' | '2x2' | '4x4';
 
 export interface FrameInfo {
   frameIndex: number;
@@ -20,6 +21,13 @@ export interface FrameInfo {
   fileSize: number;
   fps: number;
   packet: ProtocolPacket | null;
+  // Grid mode telemetry
+  gridMode: GridMode;
+  currentPage: number;
+  totalPages: number;
+  pageHoldSeconds: number;
+  activeSlotsCount: number;
+  emptySlotsCount: number;
 }
 
 export class OpticalSender {
@@ -28,24 +36,40 @@ export class OpticalSender {
   private currentFrameIndex: number = 0;
   private loopCount: number = 0;
   private state: SenderState = 'IDLE';
-  private fps: number = 4; // Default 4 frames per second
+  private fps: number = 4; // FPS for 1x1 mode
+  private pageHoldSeconds: number = 1.5; // Seconds per page for 2x2 & 4x4
   private timerId: number | null = null;
   private canvas: HTMLCanvasElement | null = null;
+  private gridContainer: HTMLElement | null = null;
   private transferId: string = '';
+  private gridMode: GridMode = '4x4'; // Default to 4x4 16-QR matrix as requested
 
   private onStateChangeCb?: (state: SenderState) => void;
   private onFrameChangeCb?: (info: FrameInfo) => void;
 
   constructor(options?: {
     canvas?: HTMLCanvasElement;
+    gridContainer?: HTMLElement;
     fps?: number;
+    pageHoldSeconds?: number;
+    gridMode?: GridMode;
     onStateChange?: (state: SenderState) => void;
     onFrameChange?: (info: FrameInfo) => void;
   }) {
     if (options?.canvas) this.canvas = options.canvas;
+    if (options?.gridContainer) this.gridContainer = options.gridContainer;
     if (options?.fps) this.fps = options.fps;
+    if (options?.pageHoldSeconds) this.pageHoldSeconds = options.pageHoldSeconds;
+    if (options?.gridMode) this.gridMode = options.gridMode;
     this.onStateChangeCb = options?.onStateChange;
     this.onFrameChangeCb = options?.onFrameChange;
+  }
+
+  public attachGridContainer(container: HTMLElement) {
+    this.gridContainer = container;
+    if (this.packets.length > 0) {
+      this.renderCurrentFrame();
+    }
   }
 
   public attachCanvas(canvas: HTMLCanvasElement) {
@@ -84,6 +108,51 @@ export class OpticalSender {
     this.setState('PAUSED');
   }
 
+  public getPageSize(): number {
+    if (this.gridMode === '4x4') return 16;
+    if (this.gridMode === '2x2') return 4;
+    return 1;
+  }
+
+  public getTotalPages(): number {
+    if (this.packets.length === 0) return 1;
+    return Math.ceil(this.packets.length / this.getPageSize());
+  }
+
+  public getCurrentPage(): number {
+    return Math.floor(this.currentFrameIndex / this.getPageSize());
+  }
+
+  public setGridMode(mode: GridMode) {
+    this.gridMode = mode;
+    // Align frame index to start of page
+    const pageSize = this.getPageSize();
+    const curPage = Math.floor(this.currentFrameIndex / pageSize);
+    this.currentFrameIndex = curPage * pageSize;
+    if (this.state === 'TRANSMITTING') {
+      this.stopLoop();
+      this.startLoop();
+    }
+    this.renderCurrentFrame();
+  }
+
+  public getGridMode(): GridMode {
+    return this.gridMode;
+  }
+
+  public setPageHoldSeconds(sec: number) {
+    this.pageHoldSeconds = Math.max(0.5, Math.min(5, sec));
+    if (this.state === 'TRANSMITTING' && this.gridMode !== '1x1') {
+      this.stopLoop();
+      this.startLoop();
+    }
+    this.notifyFrameChange();
+  }
+
+  public getPageHoldSeconds(): number {
+    return this.pageHoldSeconds;
+  }
+
   public resume() {
     if (this.state !== 'PAUSED') return;
     this.setState('TRANSMITTING');
@@ -104,14 +173,33 @@ export class OpticalSender {
 
   public nextFrame() {
     if (this.packets.length === 0) return;
-    this.currentFrameIndex = (this.currentFrameIndex + 1) % this.packets.length;
-    if (this.currentFrameIndex === 0) this.loopCount++;
+    const pageSize = this.getPageSize();
+    const totalPages = this.getTotalPages();
+
+    if (this.gridMode === '1x1') {
+      this.currentFrameIndex = (this.currentFrameIndex + 1) % this.packets.length;
+      if (this.currentFrameIndex === 0) this.loopCount++;
+    } else {
+      const curPage = Math.floor(this.currentFrameIndex / pageSize);
+      const nextPage = (curPage + 1) % totalPages;
+      this.currentFrameIndex = nextPage * pageSize;
+      if (nextPage === 0) this.loopCount++;
+    }
     this.renderCurrentFrame();
   }
 
   public prevFrame() {
     if (this.packets.length === 0) return;
-    this.currentFrameIndex = (this.currentFrameIndex - 1 + this.packets.length) % this.packets.length;
+    const pageSize = this.getPageSize();
+    const totalPages = this.getTotalPages();
+
+    if (this.gridMode === '1x1') {
+      this.currentFrameIndex = (this.currentFrameIndex - 1 + this.packets.length) % this.packets.length;
+    } else {
+      const curPage = Math.floor(this.currentFrameIndex / pageSize);
+      const prevPage = (curPage - 1 + totalPages) % totalPages;
+      this.currentFrameIndex = prevPage * pageSize;
+    }
     this.renderCurrentFrame();
   }
 
@@ -122,9 +210,17 @@ export class OpticalSender {
     }
   }
 
+  public seekPage(pageIndex: number) {
+    const totalPages = this.getTotalPages();
+    if (pageIndex >= 0 && pageIndex < totalPages) {
+      this.currentFrameIndex = pageIndex * this.getPageSize();
+      this.renderCurrentFrame();
+    }
+  }
+
   public setFps(fps: number) {
     this.fps = Math.max(1, Math.min(15, fps));
-    if (this.state === 'TRANSMITTING') {
+    if (this.state === 'TRANSMITTING' && this.gridMode === '1x1') {
       this.stopLoop();
       this.startLoop();
     }
@@ -141,6 +237,16 @@ export class OpticalSender {
 
   public getFrameInfo(): FrameInfo {
     const curPacket = this.packets[this.currentFrameIndex] || null;
+    const pageSize = this.getPageSize();
+    const totalPages = this.getTotalPages();
+    const curPage = this.getCurrentPage();
+    const pageStartIndex = curPage * pageSize;
+    let activeSlots = 0;
+    for (let i = 0; i < pageSize; i++) {
+      if (pageStartIndex + i < this.packets.length) activeSlots++;
+    }
+    const emptySlots = pageSize - activeSlots;
+
     return {
       frameIndex: this.currentFrameIndex,
       totalFrames: this.packets.length,
@@ -151,13 +257,22 @@ export class OpticalSender {
       fileExt: this.file ? this.file.name.split('.').pop() || '' : '',
       fileSize: this.file?.size || 0,
       fps: this.fps,
-      packet: curPacket
+      packet: curPacket,
+      gridMode: this.gridMode,
+      currentPage: curPage,
+      totalPages: totalPages,
+      pageHoldSeconds: this.pageHoldSeconds,
+      activeSlotsCount: activeSlots,
+      emptySlotsCount: emptySlots
     };
   }
 
   private startLoop() {
     this.stopLoop();
-    const intervalMs = Math.round(1000 / this.fps);
+    const intervalMs = this.gridMode === '1x1'
+      ? Math.round(1000 / this.fps)
+      : Math.round(this.pageHoldSeconds * 1000);
+
     this.timerId = window.setInterval(() => {
       this.nextFrame();
     }, intervalMs);
@@ -171,29 +286,113 @@ export class OpticalSender {
   }
 
   private async renderCurrentFrame(): Promise<void> {
-    if (!this.canvas || this.packets.length === 0) {
+    if (this.packets.length === 0) {
       this.notifyFrameChange();
       return;
     }
 
-    const currentPacket = this.packets[this.currentFrameIndex];
-    const qrData = serializePacket(currentPacket);
-
-    try {
-      await QRCode.toCanvas(this.canvas, qrData, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 360,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
+    // Render single canvas if attached
+    if (this.canvas) {
+      const currentPacket = this.packets[this.currentFrameIndex];
+      if (currentPacket) {
+        const qrData = serializePacket(currentPacket);
+        try {
+          await QRCode.toCanvas(this.canvas, qrData, {
+            errorCorrectionLevel: 'M',
+            margin: 2,
+            width: 360,
+            color: {
+              dark: '#000000',
+              light: '#ffffff'
+            }
+          });
+        } catch (err) {
+          console.error('[OpticalSender] Single canvas QR Render error:', err);
         }
-      });
-    } catch (err) {
-      console.error('[OpticalSender] QR Render error:', err);
+      }
+    }
+
+    // Render multi-slot grid if gridContainer is attached
+    if (this.gridContainer) {
+      await this.renderGridSlots();
     }
 
     this.notifyFrameChange();
+  }
+
+  private async renderGridSlots(): Promise<void> {
+    if (!this.gridContainer) return;
+
+    const pageSize = this.getPageSize();
+    const curPage = this.getCurrentPage();
+    const startIndex = curPage * pageSize;
+
+    this.gridContainer.className = `qr-grid-matrix grid-${this.gridMode}`;
+    this.gridContainer.innerHTML = '';
+
+    const slotRenderPromises: Promise<void>[] = [];
+
+    for (let slot = 0; slot < pageSize; slot++) {
+      const packetIdx = startIndex + slot;
+      const isPopulated = packetIdx < this.packets.length;
+
+      const cellEl = document.createElement('div');
+      cellEl.className = `qr-slot ${isPopulated ? 'qr-slot-active' : 'qr-slot-empty'}`;
+      cellEl.dataset.slotIndex = `${slot}`;
+
+      if (isPopulated) {
+        const packet = this.packets[packetIdx];
+        const canvas = document.createElement('canvas');
+        canvas.className = 'qr-slot-canvas';
+
+        // Badge indicator
+        const badge = document.createElement('div');
+        badge.className = 'qr-slot-badge';
+        if (packet.type === 'TRANSFER_START') {
+          badge.textContent = 'START';
+          badge.classList.add('badge-start');
+        } else if (packet.type === 'TRANSFER_END') {
+          badge.textContent = 'END';
+          badge.classList.add('badge-end');
+        } else {
+          badge.textContent = `#${(packet as any).seq + 1}`;
+          badge.classList.add('badge-data');
+        }
+
+        cellEl.appendChild(canvas);
+        cellEl.appendChild(badge);
+        this.gridContainer.appendChild(cellEl);
+
+        const qrWidth = this.gridMode === '4x4' ? 140 : (this.gridMode === '2x2' ? 200 : 360);
+        const qrMargin = this.gridMode === '4x4' ? 1 : 2;
+
+        const p = QRCode.toCanvas(canvas, serializePacket(packet), {
+          errorCorrectionLevel: 'M',
+          margin: qrMargin,
+          width: qrWidth,
+          color: {
+            dark: '#000000',
+            light: '#ffffff'
+          }
+        }).then(() => {}).catch(err => {
+          console.error('[OpticalSender] Slot render error:', err);
+        });
+
+        slotRenderPromises.push(p);
+      } else {
+        // Extra unused slots rendered as clean empty boxes as requested
+        const emptyBox = document.createElement('div');
+        emptyBox.className = 'empty-box-inner';
+        emptyBox.innerHTML = `
+          <div class="empty-pattern"></div>
+          <span class="empty-badge">EMPTY</span>
+        `;
+        cellEl.appendChild(emptyBox);
+        this.gridContainer.appendChild(cellEl);
+      }
+    }
+
+    await Promise.all(slotRenderPromises);
   }
 
   private setState(state: SenderState) {

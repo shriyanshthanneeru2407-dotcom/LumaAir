@@ -148,4 +148,87 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     expect(reconstructed?.fileBuffer).toEqual(rawBytes);
     expect(reconstructed?.checksum).toBe(crc32(rawBytes));
   });
+
+  it('should support Spatial Multiplexing: 16 packets ingested in a single parallel batch', () => {
+    // Generate a file that breaks into 14 data chunks + 1 START + 1 END = exactly 16 packets!
+    const dataSize = 14 * 100;
+    const rawBytes = new Uint8Array(dataSize);
+    for (let i = 0; i < dataSize; i++) rawBytes[i] = (i + 42) % 256;
+
+    const packets = createTransferPackets(rawBytes, 'matrix_file.bin', 'application/octet-stream', 100);
+    expect(packets.length).toBe(16); // Exactly fits in one 4x4 16-QR grid snapshot!
+
+    const assembler = new TransferAssembler();
+
+    // In a single camera tick, mobile BarcodeDetector returns all 16 packets simultaneously:
+    let batchAccepted = 0;
+    for (const p of packets) {
+      const res = assembler.addPacket(p);
+      if (res.accepted) batchAccepted++;
+    }
+
+    expect(batchAccepted).toBe(16);
+    expect(assembler.isComplete()).toBe(true);
+
+    const reconstructed = assembler.reconstruct();
+    expect(reconstructed).not.toBeNull();
+    expect(reconstructed?.fileBuffer.byteLength).toBe(dataSize);
+    expect(reconstructed?.fileBuffer).toEqual(rawBytes);
+  });
+
+  it('should accurately calculate active and empty slot counts in 4x4 and 2x2 grid modes', async () => {
+    const { OpticalSender } = await import('../src/core/sender');
+
+    const sender = new OpticalSender({ gridMode: '4x4' });
+    expect(sender.getPageSize()).toBe(16);
+
+    // Mock a File with 10 chunks total (8 data + 1 START + 1 END = 10 packets)
+    const content = new Uint8Array(8 * 100);
+    const mockFile = {
+      name: 'notes.txt',
+      type: 'text/plain',
+      size: content.byteLength,
+      arrayBuffer: async () => content.buffer
+    } as unknown as File;
+
+    await sender.loadFile(mockFile, 100);
+
+    const infoPage0 = sender.getFrameInfo();
+    expect(infoPage0.totalFrames).toBe(10);
+    expect(infoPage0.totalPages).toBe(1);
+    expect(infoPage0.activeSlotsCount).toBe(10);
+    expect(infoPage0.emptySlotsCount).toBe(6); // 16 - 10 = 6 empty slots!
+
+    // Now test a file with 18 packets (16 on page 1, 2 on page 2)
+    const largeContent = new Uint8Array(16 * 100);
+    const mockFileLarge = {
+      name: 'photo.png',
+      type: 'image/png',
+      size: largeContent.byteLength,
+      arrayBuffer: async () => largeContent.buffer
+    } as unknown as File;
+
+    await sender.loadFile(mockFileLarge, 100);
+    const largeInfoP0 = sender.getFrameInfo();
+    expect(largeInfoP0.totalFrames).toBe(18);
+    expect(largeInfoP0.totalPages).toBe(2);
+    expect(largeInfoP0.activeSlotsCount).toBe(16);
+    expect(largeInfoP0.emptySlotsCount).toBe(0); // Full page 1
+
+    sender.nextFrame(); // Advance to page 1
+    const largeInfoP1 = sender.getFrameInfo();
+    expect(largeInfoP1.currentPage).toBe(1);
+    expect(largeInfoP1.activeSlotsCount).toBe(2);
+    expect(largeInfoP1.emptySlotsCount).toBe(14); // 16 - 2 = 14 empty slots on last page!
+
+    // Test 2x2 mode
+    sender.setGridMode('2x2');
+    expect(sender.getPageSize()).toBe(4);
+    expect(sender.getTotalPages()).toBe(5); // 18 / 4 = 4.5 -> 5 pages
+    sender.seekPage(4); // Last page
+    const p4Info = sender.getFrameInfo();
+    expect(p4Info.activeSlotsCount).toBe(2);
+    expect(p4Info.emptySlotsCount).toBe(2); // 4 - 2 = 2 empty slots!
+  });
 });
+
