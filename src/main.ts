@@ -1,9 +1,7 @@
 import confetti from 'canvas-confetti';
-import QRCode from 'qrcode';
 import { OpticalSender, SenderState, FrameInfo } from './core/sender';
 import { OpticalReceiver, ReceiverState, ReconstructedFile } from './core/receiver';
 import { TransferProgress, ProtocolPacket } from './core/protocol';
-import { P2PSender, P2PReceiver } from './core/p2p';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -36,36 +34,7 @@ navTabs.forEach(tab => {
   });
 });
 
-// ================= ENGINE SELECTOR (P2P vs Optical) =================
-const engineTabP2P = document.getElementById('engine-tab-p2p') as HTMLButtonElement | null;
-const engineTabOptical = document.getElementById('engine-tab-optical') as HTMLButtonElement | null;
-const senderEngineP2P = document.getElementById('sender-engine-p2p') as HTMLDivElement | null;
-const senderEngineOptical = document.getElementById('sender-engine-optical') as HTMLDivElement | null;
-
-function switchEngine(engine: 'p2p' | 'optical') {
-  if (engineTabP2P && engineTabOptical && senderEngineP2P && senderEngineOptical) {
-    const isP2P = engine === 'p2p';
-    engineTabP2P.classList.toggle('active', isP2P);
-    engineTabOptical.classList.toggle('active', !isP2P);
-    senderEngineP2P.classList.toggle('active', isP2P);
-    senderEngineP2P.classList.toggle('hidden', !isP2P);
-    senderEngineOptical.classList.toggle('active', !isP2P);
-    senderEngineOptical.classList.toggle('hidden', isP2P);
-
-    if (isP2P) {
-      sender.stop();
-    }
-  }
-}
-
-if (engineTabP2P) {
-  engineTabP2P.addEventListener('click', () => switchEngine('p2p'));
-}
-if (engineTabOptical) {
-  engineTabOptical.addEventListener('click', () => switchEngine('optical'));
-}
-
-// ================= OPTICAL SENDER CONTROLLER =================
+// ================= SENDER CONTROLLER =================
 const senderCanvas = document.getElementById('sender-canvas') as HTMLCanvasElement;
 const qrGridContainer = document.getElementById('qr-grid-container') as HTMLDivElement;
 const fileDropzone = document.getElementById('file-dropzone') as HTMLDivElement;
@@ -81,8 +50,6 @@ const senderCycleTime = document.getElementById('sender-cycle-time') as HTMLSpan
 const senderFrameTypeBadge = document.getElementById('sender-frame-type-badge') as HTMLDivElement | null;
 const senderPageBadge = document.getElementById('sender-page-badge') as HTMLSpanElement | null;
 const senderSlotsIndicator = document.getElementById('sender-slots-indicator') as HTMLSpanElement | null;
-const senderStaticBanner = document.getElementById('sender-static-banner') as HTMLDivElement | null;
-const btnToggleStaticMode = document.getElementById('btn-toggle-static-mode') as HTMLButtonElement | null;
 
 const modeTabs = document.querySelectorAll<HTMLButtonElement>('.mode-tab');
 const modeHintText = document.getElementById('mode-hint-text') as HTMLParagraphElement | null;
@@ -129,7 +96,7 @@ const sender = new OpticalSender({
   gridContainer: qrGridContainer,
   fps: 4,
   pageHoldSeconds: 1.5,
-  gridMode: '1x1',
+  gridMode: '4x4',
   onStateChange: updateSenderStateUI,
   onFrameChange: updateSenderFrameUI
 });
@@ -233,10 +200,7 @@ function updateSenderFrameUI(info: FrameInfo) {
 
     if (senderFrameTypeBadge) {
       senderFrameTypeBadge.className = 'badge-frame-type';
-      if (mode === '6x6') {
-        senderFrameTypeBadge.classList.add('type-data');
-        senderFrameTypeBadge.textContent = `⚡ 36-QR MATRIX (Page ${info.currentPage + 1}/${info.totalPages})`;
-      } else if (mode === '4x4') {
+      if (mode === '4x4') {
         senderFrameTypeBadge.classList.add('type-data');
         senderFrameTypeBadge.textContent = `⚡ 16-QR MATRIX (Page ${info.currentPage + 1}/${info.totalPages})`;
       } else if (mode === '2x2') {
@@ -302,41 +266,22 @@ async function handleFileSelected(file: File) {
     const ext = file.name.split('.').pop()?.toUpperCase() || 'BIN';
     if (senderFileExt) senderFileExt.textContent = ext;
 
-    if (file.size > 64 * 1024 * 1024) {
-      showSenderAlert(`File size exceeds 64 MB limit (${formatBytes(file.size)}). Please choose a file up to 64 MB.`, 'error');
-      return;
-    } else if (file.size > 8 * 1024 * 1024) {
-      showSenderAlert(`Large file (${formatBytes(file.size)}). Use 6×6 Matrix or 1-Scan P2P Turbo mode for fastest transfer!`, 'warning');
-    } else if (file.size > 2 * 1024 * 1024) {
-      showSenderAlert(`Notice: File is ${formatBytes(file.size)}. Multi-QR Matrix (4×4 or 6×6) recommended for high transfer rate.`, 'info');
+    if (file.size > 2 * 1024 * 1024) {
+      showSenderAlert(`Notice: Large file (${formatBytes(file.size)}). Optical transfer works best with smaller files (< 1MB).`, 'warning');
     }
 
     const chunkSize = parseInt(chunkSizeSelect.value, 10);
     await sender.loadFile(file, chunkSize);
 
     const info = sender.getFrameInfo();
-
-    if (info.isStaticEligible) {
-      if (senderStaticBanner) {
-        senderStaticBanner.classList.remove('hidden');
-        if (btnToggleStaticMode) {
-          btnToggleStaticMode.textContent = info.isStaticMode ? 'Switch to Stream' : 'Switch to Static 1-Shot';
-        }
-      }
-    } else {
-      if (senderStaticBanner) senderStaticBanner.classList.add('hidden');
-    }
-
     const dataChunks = Math.max(1, info.totalFrames - 2);
-    senderFrameCount.textContent = info.isStaticMode ? '1 single frame (0 chunks)' : `${dataChunks} data chunks (${chunkSize}B/chunk)`;
+    senderFrameCount.textContent = `${dataChunks} data chunks (${chunkSize}B/chunk)`;
     if (senderTransferId) senderTransferId.textContent = `#${info.transferId}`;
     if (senderTotalFramesDesc) {
-      senderTotalFramesDesc.textContent = info.isStaticMode ? '1 Static Giant QR (1-Shot Scan)' : `${info.totalFrames} frames [1 START + ${dataChunks} DATA + 1 END]`;
+      senderTotalFramesDesc.textContent = `${info.totalFrames} frames [1 START + ${dataChunks} DATA + 1 END]`;
     }
 
-    if (info.isStaticMode) {
-      senderCycleTime.textContent = '0s (Instant 1-Shot)';
-    } else if (info.gridMode === '1x1') {
+    if (info.gridMode === '1x1') {
       const estSeconds = (info.totalFrames / sender.getFps()).toFixed(1);
       senderCycleTime.textContent = `~${estSeconds}s / cycle`;
     } else {
@@ -349,18 +294,8 @@ async function handleFileSelected(file: File) {
   }
 }
 
-if (btnToggleStaticMode) {
-  btnToggleStaticMode.addEventListener('click', async () => {
-    if (!currentLoadedFile) return;
-    const isStatic = sender.isStaticMode();
-    await sender.setUseStaticMode(!isStatic);
-    const info = sender.getFrameInfo();
-    btnToggleStaticMode.textContent = info.isStaticMode ? 'Switch to Stream' : 'Switch to Static 1-Shot';
-  });
-}
-
 // Optical Transmission Mode Tabs
-function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4' | '6x6') {
+function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4') {
   if (mode === '1x1') {
     if (timingLabelText) timingLabelText.textContent = 'Transmission Speed:';
     fpsLabel.textContent = `${sender.getFps()} FPS`;
@@ -396,22 +331,14 @@ function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4' | '6x6') {
       `;
     }
     if (modeHintText) {
-      if (mode === '6x6') {
-        modeHintText.textContent = 'Displays 36 QR codes in a 6×6 high-density matrix. Maximum throughput for widescreen monitors and sharp HD cameras!';
-      } else if (mode === '4x4') {
-        modeHintText.textContent = 'Displays 16 QR codes in a square. Mobile scans all 16 at once; extra boxes stay empty!';
-      } else {
-        modeHintText.textContent = 'Displays 4 QR codes in a 2×2 grid for smaller screens or mid-range phone cameras.';
-      }
+      modeHintText.textContent = mode === '4x4'
+        ? 'Displays 16 QR codes in a square. Mobile scans all 16 at once; extra boxes stay empty!'
+        : 'Displays 4 QR codes in a 2×2 grid for smaller screens or mid-range phone cameras.';
     }
     if (scanInstructionText) {
-      if (mode === '6x6') {
-        scanInstructionText.textContent = 'Point wide camera at the 6×6 matrix. WASM zxing-cpp engine scans up to 36 codes at once!';
-      } else if (mode === '4x4') {
-        scanInstructionText.textContent = 'Point the receiving phone camera at the 16-QR matrix. Mobile scans all 16 codes at once. Extra boxes stay empty.';
-      } else {
-        scanInstructionText.textContent = 'Point camera at the 2×2 grid to capture 4 chunks simultaneously.';
-      }
+      scanInstructionText.textContent = mode === '4x4'
+        ? 'Point the receiving phone camera at the 16-QR matrix. Mobile scans all 16 codes at once. Extra boxes stay empty.'
+        : 'Point camera at the 2×2 grid to capture 4 chunks simultaneously.';
     }
   }
   const info = sender.getFrameInfo();
@@ -426,7 +353,7 @@ function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4' | '6x6') {
 
 modeTabs.forEach(tab => {
   tab.addEventListener('click', () => {
-    const mode = tab.getAttribute('data-mode') as '1x1' | '2x2' | '4x4' | '6x6';
+    const mode = tab.getAttribute('data-mode') as '1x1' | '2x2' | '4x4';
     if (!mode) return;
     modeTabs.forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
@@ -653,6 +580,8 @@ if (btnFsNext) {
 const receiverVideo = document.getElementById('receiver-video') as HTMLVideoElement;
 const btnCameraToggle = document.getElementById('btn-camera-toggle') as HTMLButtonElement;
 const cameraBtnText = document.getElementById('camera-btn-text') as HTMLSpanElement;
+const btnCameraFlip = document.getElementById('btn-camera-flip') as HTMLButtonElement;
+const cameraSelect = document.getElementById('camera-select') as HTMLSelectElement;
 const cameraPlaceholder = document.getElementById('camera-placeholder') as HTMLDivElement;
 const viewfinderOverlay = document.getElementById('viewfinder-overlay') as HTMLDivElement;
 const recBatchBadge = document.getElementById('rec-batch-badge') as HTMLDivElement | null;
@@ -680,6 +609,8 @@ const downloadSizeBadge = document.getElementById('download-size-badge') as HTML
 const btnReceiveAnother = document.getElementById('btn-receive-another') as HTMLButtonElement;
 
 let isCameraActive = false;
+let currentFacingMode: 'environment' | 'user' = 'environment';
+let availableCameras: MediaDeviceInfo[] = [];
 let batchBadgeTimeout: number | null = null;
 
 const receiver = new OpticalReceiver({
@@ -736,10 +667,6 @@ const receiver = new OpticalReceiver({
   },
   onFileComplete: (reconstructed: ReconstructedFile) => {
     displayReconstructedFile(reconstructed);
-  },
-  onP2PDiscovered: (sessionId: string) => {
-    stopCameraSession();
-    startP2PReception(sessionId);
   },
   onError: (err) => {
     alert(`Camera error: ${err.message}`);
@@ -867,24 +794,41 @@ btnReceiverReset.addEventListener('click', () => {
   filePreviewArea.classList.add('hidden');
 });
 
-// Camera controls (Permanently locked to Back Camera, No Flip/Dropdown Clutter)
+// Camera controls
 async function startCameraSession() {
   try {
-    await receiver.startCamera(receiverVideo);
+    const selectedDeviceId = cameraSelect.value || undefined;
+    await receiver.startCamera(receiverVideo, selectedDeviceId, currentFacingMode);
     isCameraActive = true;
     cameraBtnText.textContent = 'Stop Camera';
     cameraPlaceholder.classList.add('hidden');
     viewfinderOverlay.classList.remove('hidden');
+    btnCameraFlip.disabled = false;
+    cameraSelect.disabled = false;
+
+    // Populate camera devices
+    availableCameras = await receiver.getAvailableCameras();
+    if (availableCameras.length > 0 && cameraSelect.options.length <= 1) {
+      cameraSelect.innerHTML = '';
+      availableCameras.forEach((cam, idx) => {
+        const opt = document.createElement('option');
+        opt.value = cam.deviceId;
+        opt.textContent = cam.label || `Camera ${idx + 1}`;
+        cameraSelect.appendChild(opt);
+      });
+    }
   } catch (err: any) {
-    console.error('Failed to start back camera', err);
+    console.error('Failed to start camera', err);
   }
 }
 
 function stopCameraSession() {
   receiver.stop();
   isCameraActive = false;
-  cameraBtnText.textContent = 'Start Back Camera';
+  cameraBtnText.textContent = 'Start Camera';
   cameraPlaceholder.classList.remove('hidden');
+  btnCameraFlip.disabled = true;
+  cameraSelect.disabled = true;
 }
 
 btnCameraToggle.addEventListener('click', () => {
@@ -895,352 +839,20 @@ btnCameraToggle.addEventListener('click', () => {
   }
 });
 
-// ================= P2P TURBO CONTROLLER =================
-const p2pFileInput = document.getElementById('p2p-file-input') as HTMLInputElement | null;
-const p2pFileDropzone = document.getElementById('p2p-file-dropzone') as HTMLDivElement | null;
-const p2pFileInfo = document.getElementById('p2p-file-info') as HTMLDivElement | null;
-const p2pFileName = document.getElementById('p2p-file-name') as HTMLSpanElement | null;
-const p2pFileSize = document.getElementById('p2p-file-size') as HTMLSpanElement | null;
-const p2pSessionId = document.getElementById('p2p-session-id') as HTMLSpanElement | null;
-const p2pSpeedBadge = document.getElementById('p2p-speed-badge') as HTMLSpanElement | null;
-const p2pPairingUrlInput = document.getElementById('p2p-pairing-url-input') as HTMLInputElement | null;
-const btnCopyP2pUrl = document.getElementById('btn-copy-p2p-url') as HTMLButtonElement | null;
-
-const p2pStatusDot = document.getElementById('p2p-status-dot') as HTMLSpanElement | null;
-const p2pStatusTitle = document.getElementById('p2p-status-title') as HTMLSpanElement | null;
-const p2pStatusDesc = document.getElementById('p2p-status-desc') as HTMLParagraphElement | null;
-const p2pHeaderDot = document.getElementById('p2p-header-dot') as HTMLSpanElement | null;
-const p2pHeaderText = document.getElementById('p2p-header-text') as HTMLSpanElement | null;
-
-const p2pSenderCanvas = document.getElementById('p2p-sender-canvas') as HTMLCanvasElement | null;
-const p2pSenderPlaceholder = document.getElementById('p2p-sender-placeholder') as HTMLDivElement | null;
-
-const p2pBytesIndicator = document.getElementById('p2p-bytes-indicator') as HTMLSpanElement | null;
-const p2pSpeedIndicator = document.getElementById('p2p-speed-indicator') as HTMLSpanElement | null;
-const p2pPctIndicator = document.getElementById('p2p-pct-indicator') as HTMLSpanElement | null;
-const p2pProgressFill = document.getElementById('p2p-progress-fill') as HTMLDivElement | null;
-
-const btnP2pSampleSmall = document.getElementById('btn-p2p-sample-small') as HTMLButtonElement | null;
-const btnP2pSampleMedium = document.getElementById('btn-p2p-sample-medium') as HTMLButtonElement | null;
-const btnP2pSampleLarge = document.getElementById('btn-p2p-sample-large') as HTMLButtonElement | null;
-
-// P2P Receiver Elements
-const p2pRecCard = document.getElementById('p2p-rec-card') as HTMLDivElement | null;
-const p2pRecDot = document.getElementById('p2p-rec-dot') as HTMLSpanElement | null;
-const p2pRecStatusText = document.getElementById('p2p-rec-status-text') as HTMLSpanElement | null;
-const p2pRecFileName = document.getElementById('p2p-rec-file-name') as HTMLSpanElement | null;
-const p2pRecFileSize = document.getElementById('p2p-rec-file-size') as HTMLSpanElement | null;
-const p2pRecSpeed = document.getElementById('p2p-rec-speed') as HTMLSpanElement | null;
-const p2pRecBytes = document.getElementById('p2p-rec-bytes') as HTMLSpanElement | null;
-const p2pRecProgressFill = document.getElementById('p2p-rec-progress-fill') as HTMLDivElement | null;
-const p2pRecSuccess = document.getElementById('p2p-rec-success') as HTMLDivElement | null;
-const p2pFilePreviewArea = document.getElementById('p2p-file-preview-area') as HTMLDivElement | null;
-const btnP2pDownloadFile = document.getElementById('btn-p2p-download-file') as HTMLButtonElement | null;
-const p2pDownloadSizeBadge = document.getElementById('p2p-download-size-badge') as HTMLSpanElement | null;
-const btnP2pReceiveAnother = document.getElementById('btn-p2p-receive-another') as HTMLButtonElement | null;
-
-const inputP2pCode = document.getElementById('input-p2p-code') as HTMLInputElement | null;
-const btnP2pManualConnect = document.getElementById('btn-p2p-manual-connect') as HTMLButtonElement | null;
-
-// P2P Sender instance
-const p2pSender = new P2PSender({
-  onStatusChange: (status, detail) => {
-    if (!p2pStatusDot || !p2pStatusTitle || !p2pStatusDesc) return;
-    p2pStatusDot.className = 'status-dot';
-    switch (status) {
-      case 'WAITING_FOR_SCAN':
-        p2pStatusDot.classList.add('dot-idle');
-        p2pStatusTitle.textContent = 'Waiting for Phone Scan';
-        p2pStatusDesc.textContent = 'Scan the giant QR code with your mobile camera or Luma receiver.';
-        if (p2pHeaderDot) p2pHeaderDot.className = 'status-dot dot-idle';
-        if (p2pHeaderText) p2pHeaderText.textContent = 'Awaiting Scan';
-        break;
-      case 'CONNECTING':
-        p2pStatusDot.classList.add('dot-paused');
-        p2pStatusTitle.textContent = 'Peer Connecting...';
-        p2pStatusDesc.textContent = 'Handshaking WebRTC encrypted direct DataChannel...';
-        if (p2pHeaderDot) p2pHeaderDot.className = 'status-dot dot-paused';
-        if (p2pHeaderText) p2pHeaderText.textContent = 'Connecting';
-        break;
-      case 'TRANSFERRING':
-        p2pStatusDot.classList.add('dot-active');
-        p2pStatusTitle.textContent = 'Streaming Direct P2P';
-        p2pStatusDesc.textContent = 'Data transferring directly device-to-device at maximum network speed.';
-        if (p2pHeaderDot) p2pHeaderDot.className = 'status-dot dot-active';
-        if (p2pHeaderText) p2pHeaderText.textContent = 'Streaming';
-        break;
-      case 'COMPLETE':
-        p2pStatusDot.classList.add('dot-active');
-        p2pStatusTitle.textContent = 'Transfer Complete ✓';
-        p2pStatusDesc.textContent = 'File successfully received and verified on peer device.';
-        if (p2pHeaderDot) p2pHeaderDot.className = 'status-dot dot-active';
-        if (p2pHeaderText) p2pHeaderText.textContent = 'Complete';
-        break;
-      case 'ERROR':
-        p2pStatusDot.classList.add('dot-error');
-        p2pStatusTitle.textContent = 'P2P Transfer Error';
-        p2pStatusDesc.textContent = detail || 'Connection failed.';
-        if (p2pHeaderDot) p2pHeaderDot.className = 'status-dot dot-error';
-        if (p2pHeaderText) p2pHeaderText.textContent = 'Error';
-        break;
-    }
-  },
-  onProgress: (prog) => {
-    if (p2pBytesIndicator) p2pBytesIndicator.textContent = `${formatBytes(prog.bytesTransferred)} / ${formatBytes(prog.totalBytes)}`;
-    if (p2pSpeedIndicator) p2pSpeedIndicator.textContent = `${prog.speedMBps} MB/s`;
-    if (p2pSpeedBadge) p2pSpeedBadge.textContent = `${prog.speedMBps} MB/s`;
-    if (p2pPctIndicator) p2pPctIndicator.textContent = `${prog.percentage}%`;
-    if (p2pProgressFill) p2pProgressFill.style.width = `${prog.percentage}%`;
-  },
-  onComplete: () => {
-    if (p2pPctIndicator) p2pPctIndicator.textContent = '100%';
-    if (p2pProgressFill) p2pProgressFill.style.width = '100%';
-    confetti({
-      particleCount: 50,
-      spread: 60,
-      origin: { y: 0.6 }
-    });
+btnCameraFlip.addEventListener('click', async () => {
+  currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+  if (isCameraActive) {
+    stopCameraSession();
+    await startCameraSession();
   }
 });
 
-// P2P Receiver instance
-const p2pReceiver = new P2PReceiver({
-  onStatusChange: (status, detail) => {
-    if (!p2pRecDot || !p2pRecStatusText) return;
-    p2pRecDot.className = 'status-dot';
-    switch (status) {
-      case 'CONNECTING':
-        p2pRecDot.classList.add('dot-paused');
-        p2pRecStatusText.textContent = 'Connecting to peer...';
-        break;
-      case 'TRANSFERRING':
-        p2pRecDot.classList.add('dot-active');
-        p2pRecStatusText.textContent = 'Receiving file stream...';
-        break;
-      case 'COMPLETE':
-        p2pRecDot.classList.add('dot-active');
-        p2pRecStatusText.textContent = '100% Verified ✓';
-        break;
-      case 'ERROR':
-        p2pRecDot.classList.add('dot-error');
-        p2pRecStatusText.textContent = detail || 'Error';
-        break;
-    }
-  },
-  onProgress: (prog) => {
-    if (p2pRecFileName) p2pRecFileName.textContent = prog.fileName;
-    if (p2pRecFileSize) p2pRecFileSize.textContent = formatBytes(prog.totalBytes);
-    if (p2pRecSpeed) p2pRecSpeed.textContent = `${prog.speedMBps} MB/s`;
-    if (p2pRecBytes) p2pRecBytes.textContent = `${formatBytes(prog.bytesTransferred)} / ${formatBytes(prog.totalBytes)} (${prog.percentage}%)`;
-    if (p2pRecProgressFill) p2pRecProgressFill.style.width = `${prog.percentage}%`;
-  },
-  onFileComplete: (file) => {
-    if (p2pRecSuccess) p2pRecSuccess.classList.remove('hidden');
-    if (p2pDownloadSizeBadge) p2pDownloadSizeBadge.textContent = formatBytes(file.fileSize);
-
-    // Render preview
-    if (p2pFilePreviewArea) {
-      p2pFilePreviewArea.innerHTML = '';
-      if (file.isImage) {
-        p2pFilePreviewArea.classList.remove('hidden');
-        const img = document.createElement('img');
-        img.src = file.downloadUrl;
-        img.alt = file.fileName;
-        p2pFilePreviewArea.appendChild(img);
-      } else if (file.textPreview) {
-        p2pFilePreviewArea.classList.remove('hidden');
-        const pre = document.createElement('pre');
-        pre.textContent = file.textPreview;
-        p2pFilePreviewArea.appendChild(pre);
-      } else {
-        p2pFilePreviewArea.classList.add('hidden');
-      }
-    }
-
-    confetti({
-      particleCount: 75,
-      spread: 70,
-      origin: { y: 0.6 }
-    });
-
-    // Auto-trigger download
-    p2pReceiver.downloadFile();
+cameraSelect.addEventListener('change', async () => {
+  if (isCameraActive) {
+    stopCameraSession();
+    await startCameraSession();
   }
 });
-
-async function handleP2PFileSelected(file: File) {
-  if (p2pFileInfo) p2pFileInfo.classList.remove('hidden');
-  if (p2pFileName) p2pFileName.textContent = file.name;
-  if (p2pFileSize) p2pFileSize.textContent = formatBytes(file.size);
-  if (p2pProgressFill) p2pProgressFill.style.width = '0%';
-  if (p2pPctIndicator) p2pPctIndicator.textContent = '0%';
-  if (p2pBytesIndicator) p2pBytesIndicator.textContent = `0 B / ${formatBytes(file.size)}`;
-  if (p2pSpeedIndicator) p2pSpeedIndicator.textContent = '0 MB/s';
-  if (p2pSpeedBadge) p2pSpeedBadge.textContent = '0 MB/s';
-
-  if (p2pStatusDot) p2pStatusDot.className = 'status-dot dot-paused';
-  if (p2pStatusTitle) p2pStatusTitle.textContent = 'Generating 1-Scan Pairing QR...';
-  if (p2pStatusDesc) p2pStatusDesc.textContent = 'Initializing direct WebRTC session...';
-
-  try {
-    const pairingUrl = await p2pSender.prepareFile(file);
-    if (p2pSessionId) p2pSessionId.textContent = p2pSender.getSessionId();
-    if (p2pPairingUrlInput) p2pPairingUrlInput.value = pairingUrl;
-
-    // Render giant QR
-    if (p2pSenderPlaceholder) p2pSenderPlaceholder.classList.add('hidden');
-    if (p2pSenderCanvas) {
-      p2pSenderCanvas.classList.remove('hidden');
-      await QRCode.toCanvas(p2pSenderCanvas, pairingUrl, {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 380,
-        color: { dark: '#000000', light: '#ffffff' }
-      });
-    }
-
-    if (p2pStatusDot) p2pStatusDot.className = 'status-dot dot-active';
-    if (p2pStatusTitle) p2pStatusTitle.textContent = 'Waiting for Phone Scan';
-    if (p2pStatusDesc) {
-      p2pStatusDesc.textContent = 'Point phone camera at this giant QR code. Directly connects device-to-device at 30+ MB/s.';
-    }
-    if (p2pHeaderDot) p2pHeaderDot.className = 'status-dot dot-active';
-    if (p2pHeaderText) p2pHeaderText.textContent = 'Pairing Ready';
-  } catch (err: any) {
-    if (p2pStatusDot) p2pStatusDot.className = 'status-dot dot-error';
-    if (p2pStatusTitle) p2pStatusTitle.textContent = 'Error Initializing P2P';
-    if (p2pStatusDesc) p2pStatusDesc.textContent = err.message || 'Peer creation error';
-  }
-}
-
-if (p2pFileInput) {
-  p2pFileInput.addEventListener('change', () => {
-    if (p2pFileInput.files && p2pFileInput.files[0]) {
-      handleP2PFileSelected(p2pFileInput.files[0]);
-      p2pFileInput.value = '';
-    }
-  });
-}
-
-if (p2pFileDropzone) {
-  p2pFileDropzone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    p2pFileDropzone.classList.add('dragover');
-  });
-  p2pFileDropzone.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    p2pFileDropzone.classList.remove('dragover');
-  });
-  p2pFileDropzone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    p2pFileDropzone.classList.remove('dragover');
-    if (e.dataTransfer?.files && e.dataTransfer.files[0]) {
-      handleP2PFileSelected(e.dataTransfer.files[0]);
-    }
-  });
-}
-
-// Copy P2P pairing link
-if (btnCopyP2pUrl && p2pPairingUrlInput) {
-  btnCopyP2pUrl.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(p2pPairingUrlInput.value);
-      btnCopyP2pUrl.textContent = 'Copied!';
-      setTimeout(() => {
-        btnCopyP2pUrl.textContent = 'Copy Link';
-      }, 2000);
-    } catch {
-      p2pPairingUrlInput.select();
-      document.execCommand('copy');
-      btnCopyP2pUrl.textContent = 'Copied!';
-    }
-  });
-}
-
-// P2P Quick sample generators
-if (btnP2pSampleSmall) {
-  btnP2pSampleSmall.addEventListener('click', (e) => {
-    e.preventDefault();
-    const content = 'Luma P2P Turbo Mode — Quick 10 KB Payload Test\n'.repeat(250);
-    const file = new File([new Blob([content], { type: 'text/plain' })], 'turbo_test_10kb.txt', { type: 'text/plain' });
-    handleP2PFileSelected(file);
-  });
-}
-
-if (btnP2pSampleMedium) {
-  btnP2pSampleMedium.addEventListener('click', (e) => {
-    e.preventDefault();
-    const buffer = new Uint8Array(1024 * 1024); // 1 MB
-    for (let i = 0; i < buffer.length; i++) buffer[i] = (i * 31) % 256;
-    const file = new File([new Blob([buffer], { type: 'application/octet-stream' })], 'sample_dataset_1mb.bin', { type: 'application/octet-stream' });
-    handleP2PFileSelected(file);
-  });
-}
-
-if (btnP2pSampleLarge) {
-  btnP2pSampleLarge.addEventListener('click', (e) => {
-    e.preventDefault();
-    const buffer = new Uint8Array(5 * 1024 * 1024); // 5 MB
-    for (let i = 0; i < buffer.length; i++) buffer[i] = (i * 17) % 256;
-    const file = new File([new Blob([buffer], { type: 'application/octet-stream' })], 'big_payload_5mb.bin', { type: 'application/octet-stream' });
-    handleP2PFileSelected(file);
-  });
-}
-
-// Start P2P Reception helper
-async function startP2PReception(sessionId: string) {
-  switchTab('receiver-view');
-  if (p2pRecCard) p2pRecCard.classList.remove('hidden');
-  if (p2pRecSuccess) p2pRecSuccess.classList.add('hidden');
-  if (p2pFilePreviewArea) p2pFilePreviewArea.classList.add('hidden');
-
-  try {
-    await p2pReceiver.connectToSender(sessionId);
-  } catch (err: any) {
-    console.error('P2P connection error:', err);
-  }
-}
-
-if (btnP2pDownloadFile) {
-  btnP2pDownloadFile.addEventListener('click', () => {
-    p2pReceiver.downloadFile();
-  });
-}
-
-if (btnP2pReceiveAnother) {
-  btnP2pReceiveAnother.addEventListener('click', () => {
-    p2pReceiver.destroy();
-    if (p2pRecCard) p2pRecCard.classList.add('hidden');
-    window.location.hash = '';
-  });
-}
-
-if (btnP2pManualConnect && inputP2pCode) {
-  btnP2pManualConnect.addEventListener('click', () => {
-    const code = inputP2pCode.value.trim();
-    if (code) {
-      startP2PReception(code);
-    }
-  });
-}
-
-// Check for #p2p= URL param on load or hash change
-function checkUrlHashForP2P() {
-  const hash = window.location.hash;
-  if (hash.startsWith('#p2p=')) {
-    const targetSessionId = hash.substring(5);
-    if (targetSessionId) {
-      console.log('[Luma] Detected P2P pairing hash:', targetSessionId);
-      startP2PReception(targetSessionId);
-    }
-  }
-}
-
-window.addEventListener('hashchange', checkUrlHashForP2P);
-checkUrlHashForP2P();
 
 // ================= SELF-TEST SANDBOX CONTROLLER =================
 const sandboxSenderCanvas = document.getElementById('sandbox-sender-canvas') as HTMLCanvasElement;

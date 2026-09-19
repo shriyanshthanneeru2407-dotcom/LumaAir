@@ -28,7 +28,6 @@ export interface ReceiverCallbacks {
   onFileComplete?: (file: ReconstructedFile) => void;
   onFrameRejected?: (packet: ProtocolPacket, reason: string) => void;
   onBatchScanned?: (acceptedInFrame: number, totalFoundInFrame: number) => void;
-  onP2PDiscovered?: (sessionId: string) => void;
   onError?: (err: Error) => void;
 }
 
@@ -46,8 +45,6 @@ export class OpticalReceiver {
   private barcodeDetector: any = null;
   private isDetecting = false;
   private lastScannedKey: string = '';
-  private wasmCodec: any = null;
-  private wasmCodecLoading = false;
 
   constructor(callbacks?: ReceiverCallbacks) {
     if (callbacks) this.callbacks = callbacks;
@@ -63,56 +60,35 @@ export class OpticalReceiver {
         this.barcodeDetector = null;
       }
     }
-
-    // Lazy load Decimen zxing-cpp WASM multi-QR engine
-    this.initWasmCodec();
   }
 
-  private async initWasmCodec() {
-    if (this.wasmCodec || this.wasmCodecLoading || typeof window === 'undefined') return;
-    this.wasmCodecLoading = true;
+  public async getAvailableCameras(): Promise<MediaDeviceInfo[]> {
     try {
-      const initCodec: any = await import('../vendor/decimen-codec/decimen_codec.js');
-      const factory = initCodec.default || initCodec;
-      this.wasmCodec = await factory({
-        locateFile: (path: string) => {
-          if (path.endsWith('.wasm')) return '/vendor/decimen-codec/decimen_codec.wasm';
-          return path;
-        }
-      });
-      console.log('[OpticalReceiver] Decimen zxing-cpp WASM multi-QR engine loaded! v' + this.wasmCodec.version());
-    } catch (err) {
-      console.warn('[OpticalReceiver] Decimen WASM codec could not be loaded, using fallback:', err);
-    } finally {
-      this.wasmCodecLoading = false;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter(d => d.kind === 'videoinput');
+    } catch {
+      return [];
     }
   }
 
-  public async startCamera(videoElement: HTMLVideoElement): Promise<void> {
+  public async startCamera(
+    videoElement: HTMLVideoElement,
+    deviceId?: string,
+    facingMode: 'environment' | 'user' = 'environment'
+  ): Promise<void> {
     this.stop();
     this.videoElement = videoElement;
     this.setState('STARTING');
 
-    // Locked permanently to back camera (environment) with wide HD capture
     const constraints: MediaStreamConstraints = {
       audio: false,
-      video: {
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 }
-      }
+      video: deviceId
+        ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        : { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } }
     };
 
     try {
-      try {
-        this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch {
-        // Fallback for devices that prefer simpler constraints
-        this.mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: 'environment' }
-        });
-      }
+      this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       this.videoElement.srcObject = this.mediaStream;
       await this.videoElement.play();
       this.setState('SCANNING');
@@ -253,59 +229,7 @@ export class OpticalReceiver {
     const vh = this.videoElement.videoHeight;
     if (vw === 0 || vh === 0) return;
 
-    // 1. Decimen zxing-cpp WASM multi-QR engine (decodes up to 36 symbols simultaneously)
-    if (this.wasmCodec) {
-      try {
-        const maxDim = 1280;
-        let targetW = vw;
-        let targetH = vh;
-        if (targetW > maxDim || targetH > maxDim) {
-          const scale = maxDim / Math.max(targetW, targetH);
-          targetW = Math.floor(targetW * scale);
-          targetH = Math.floor(targetH * scale);
-        }
-
-        if (this.scanCanvas.width !== targetW || this.scanCanvas.height !== targetH) {
-          this.scanCanvas.width = targetW;
-          this.scanCanvas.height = targetH;
-        }
-
-        this.scanCtx.drawImage(this.videoElement, 0, 0, targetW, targetH);
-        const imgData = this.scanCtx.getImageData(0, 0, targetW, targetH);
-        const byteCount = targetW * targetH * 4;
-        const ptr = this.wasmCodec._malloc(byteCount);
-        this.wasmCodec.HEAPU8.set(imgData.data, ptr);
-
-        const results = this.wasmCodec.readFull(ptr, targetW, targetH, false, 36, false);
-        const count = results.size();
-        let acceptedCount = 0;
-
-        if (count > 0) {
-          const decoder = new TextDecoder();
-          for (let i = 0; i < count; i++) {
-            const item = results.get(i);
-            if (item.valid && item.bytes && item.bytes.length > 0) {
-              const text = decoder.decode(item.bytes);
-              const accepted = await this.handleRawQrData(text);
-              if (accepted) acceptedCount++;
-            }
-          }
-        }
-        results.delete();
-        this.wasmCodec._free(ptr);
-
-        if (count > 0) {
-          if (this.callbacks.onBatchScanned) {
-            this.callbacks.onBatchScanned(acceptedCount, count);
-          }
-          return;
-        }
-      } catch (err) {
-        // Fall back gracefully
-      }
-    }
-
-    // 2. Scan native BarcodeDetector if supported
+    // Scan native BarcodeDetector if supported
     if (this.barcodeDetector) {
       try {
         const barcodes = await this.barcodeDetector.detect(this.videoElement);
@@ -387,17 +311,6 @@ export class OpticalReceiver {
   }
 
   private async handleRawQrData(rawData: string): Promise<boolean> {
-    // Check if scanned QR is a P2P Turbo pairing URL or token
-    if (rawData.includes('#p2p=') || rawData.includes('p2p=')) {
-      const match = rawData.match(/p2p=([a-zA-Z0-9_-]+)/);
-      if (match && match[1]) {
-        if (this.callbacks.onP2PDiscovered) {
-          this.callbacks.onP2PDiscovered(match[1]);
-          return true;
-        }
-      }
-    }
-
     const packet = parsePacket(rawData);
     if (!packet) return false;
 

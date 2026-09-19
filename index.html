@@ -52,150 +52,7 @@
       <main class="main-content">
         <!-- ================= SENDER VIEW ================= -->
         <section id="sender-view" class="view-panel active">
-          <!-- Engine Selector Banner -->
-          <div class="engine-selector-banner">
-            <div class="engine-tabs" role="tablist">
-              <button type="button" class="engine-tab active" id="engine-tab-p2p" data-engine="p2p">
-                <span class="engine-tab-icon">⚡</span>
-                <div class="engine-tab-text">
-                  <span class="engine-tab-title">P2P Turbo Mode (Big Files)</span>
-                  <span class="engine-tab-sub">1 Giant QR scan • 30+ MB/s • Encrypted WebRTC</span>
-                </div>
-                <span class="engine-badge-rec">Recommended</span>
-              </button>
-              <button type="button" class="engine-tab" id="engine-tab-optical" data-engine="optical">
-                <span class="engine-tab-icon">👁️</span>
-                <div class="engine-tab-text">
-                  <span class="engine-tab-title">Pure Air-Gapped Optical</span>
-                  <span class="engine-tab-sub">Screen-to-Camera • 100% Offline • 1-Shot or Stream</span>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          <!-- P2P TURBO SENDER ENGINE -->
-          <div id="sender-engine-p2p" class="engine-panel active">
-            <div class="panel-grid">
-              <!-- Left: File Selector & Connection Telemetry -->
-              <div class="card sender-controls-card">
-                <h2 class="card-title">1. Select Any File (MBs to GBs)</h2>
-                
-                <label class="dropzone" id="p2p-file-dropzone" for="p2p-file-input">
-                  <input type="file" id="p2p-file-input" class="file-input-hidden" />
-                  <div class="dropzone-content">
-                    <svg class="dropzone-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                      <polyline points="17 8 12 3 7 8"/>
-                      <line x1="12" y1="3" x2="12" y2="15"/>
-                    </svg>
-                    <p class="dropzone-text"><strong>Click to browse</strong> or drag & drop any file</p>
-                    <span class="dropzone-hint">No size limit: 5 MB, 50 MB, 500 MB+ transferred in seconds</span>
-                    <div class="dropzone-action">
-                      <span class="btn btn-sm btn-primary">Browse File for Turbo P2P</span>
-                    </div>
-                  </div>
-                </label>
-
-                <!-- Quick Samples -->
-                <div class="quick-samples-bar">
-                  <span class="quick-samples-label">Quick samples:</span>
-                  <div class="sample-file-buttons">
-                    <button type="button" id="btn-p2p-sample-small" class="btn btn-xs btn-secondary">10 KB Text</button>
-                    <button type="button" id="btn-p2p-sample-medium" class="btn btn-xs btn-secondary">1 MB Binary</button>
-                    <button type="button" id="btn-p2p-sample-large" class="btn btn-xs btn-secondary">5 MB Big File</button>
-                  </div>
-                </div>
-
-                <!-- P2P File & Session Info Box -->
-                <div id="p2p-file-info" class="file-info-box hidden">
-                  <div class="file-info-row">
-                    <span class="info-label">File:</span>
-                    <span id="p2p-file-name" class="info-value font-mono">-</span>
-                  </div>
-                  <div class="file-info-row">
-                    <span class="info-label">Size:</span>
-                    <span id="p2p-file-size" class="info-value font-mono">-</span>
-                  </div>
-                  <div class="file-info-row">
-                    <span class="info-label">Session ID:</span>
-                    <span id="p2p-session-id" class="info-value font-mono text-cyan">-</span>
-                  </div>
-                  <div class="file-info-row">
-                    <span class="info-label">Transfer Speed:</span>
-                    <span id="p2p-speed-badge" class="info-value font-mono text-success">-- MB/s</span>
-                  </div>
-                  <div class="p2p-url-copy-row">
-                    <input type="text" id="p2p-pairing-url-input" class="form-input font-mono text-xs" readonly />
-                    <button type="button" id="btn-copy-p2p-url" class="btn btn-xs btn-secondary">Copy Link</button>
-                  </div>
-                </div>
-
-                <!-- P2P Live Status Banner -->
-                <div id="p2p-status-banner" class="p2p-status-box">
-                  <div class="p2p-status-header">
-                    <span id="p2p-status-dot" class="status-dot dot-idle"></span>
-                    <span id="p2p-status-title" class="p2p-status-title">Waiting for File</span>
-                  </div>
-                  <p id="p2p-status-desc" class="p2p-status-desc">
-                    Select a file above to generate your 1-Scan WebRTC pairing QR code.
-                  </p>
-                </div>
-              </div>
-
-              <!-- Right: 1 Giant QR Code Display for P2P -->
-              <div class="card sender-display-card">
-                <div class="display-header">
-                  <h2 class="card-title">2. Scan 1 Giant QR with Mobile Camera</h2>
-                  <div class="status-indicator">
-                    <span id="p2p-header-dot" class="status-dot dot-idle"></span>
-                    <span id="p2p-header-text" class="status-text">Ready</span>
-                  </div>
-                </div>
-
-                <div class="qr-stage">
-                  <div class="p2p-qr-wrapper" id="p2p-qr-wrapper">
-                    <canvas id="p2p-sender-canvas" width="380" height="380" class="hidden"></canvas>
-                    <div id="p2p-sender-placeholder" class="qr-placeholder">
-                      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-                        <rect width="18" height="18" x="3" y="3" rx="2"/>
-                        <path d="M8 8h8v8H8z"/>
-                      </svg>
-                      <p>Select a file to generate 1 Giant Pairing QR</p>
-                      <span class="placeholder-sub">Scan once with phone camera to transfer big files at 30+ MB/s</span>
-                    </div>
-                  </div>
-
-                  <!-- Live P2P Telemetry -->
-                  <div class="telemetry-bar">
-                    <div class="telemetry-item">
-                      <span class="telemetry-label">Transferred:</span>
-                      <span id="p2p-bytes-indicator" class="telemetry-val font-mono">0 B / 0 B</span>
-                    </div>
-                    <div class="telemetry-item">
-                      <span class="telemetry-label">Speed:</span>
-                      <span id="p2p-speed-indicator" class="telemetry-val font-mono">0 MB/s</span>
-                    </div>
-                    <div class="telemetry-item">
-                      <span class="telemetry-label">Progress:</span>
-                      <span id="p2p-pct-indicator" class="telemetry-val font-mono">0%</span>
-                    </div>
-                  </div>
-
-                  <div class="progress-track">
-                    <div id="p2p-progress-fill" class="progress-fill" style="width: 0%"></div>
-                  </div>
-
-                  <p class="scan-instruction">
-                    Point your mobile phone camera at this giant QR code. It opens Luma and links directly via encrypted peer-to-peer WebRTC DataChannel (0 cloud storage).
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- OPTICAL AIR-GAPPED SENDER ENGINE -->
-          <div id="sender-engine-optical" class="engine-panel hidden">
-            <div class="panel-grid">
+          <div class="panel-grid">
             <!-- Left: File Upload & Controls -->
             <div class="card sender-controls-card">
               <h2 class="card-title">1. Select File to Transmit</h2>
@@ -209,7 +66,7 @@
                     <line x1="12" y1="3" x2="12" y2="15"/>
                   </svg>
                   <p class="dropzone-text"><strong>Click to browse</strong> or drag & drop a file</p>
-                  <span class="dropzone-hint">Supports any file up to 64 MB: text, image, doc, pdf, zip, video</span>
+                  <span class="dropzone-hint">Supports any file: text, image, doc, pdf, zip</span>
                   <div class="dropzone-action">
                     <span class="btn btn-sm btn-primary">Browse File on Computer</span>
                   </div>
@@ -227,15 +84,6 @@
 
               <!-- Status / Error Notification banner -->
               <div id="sender-alert" class="alert-box hidden"></div>
-
-              <!-- Static 1-Shot Giant QR Banner -->
-              <div id="sender-static-banner" class="static-banner hidden">
-                <div class="static-banner-text">
-                  <span class="static-badge">⚡ 1-Shot Giant QR</span>
-                  <span class="static-desc">File is &le; 2.4 KB. Entire file is embedded in 1 static QR with 0 flashing!</span>
-                </div>
-                <button type="button" id="btn-toggle-static-mode" class="btn btn-xs btn-outline">Switch to Stream</button>
-              </div>
 
               <!-- File Info Display -->
               <div id="sender-file-info" class="file-info-box hidden">
@@ -275,25 +123,21 @@
                 <div class="setting-item">
                   <label class="setting-title-label">Optical Transmission Mode:</label>
                   <div class="mode-selector-tabs" id="grid-mode-selector">
-                    <button type="button" class="mode-tab active" data-mode="1x1">
-                      <span class="mode-title">1×1 Single QR</span>
-                      <span class="mode-badge">Giant • Fast Scan</span>
+                    <button type="button" class="mode-tab active" data-mode="4x4">
+                      <span class="mode-title">4×4 Big Square</span>
+                      <span class="mode-badge">16 QRs • Simultaneous</span>
                     </button>
                     <button type="button" class="mode-tab" data-mode="2x2">
                       <span class="mode-title">2×2 Grid</span>
-                      <span class="mode-badge">4 Large QRs</span>
+                      <span class="mode-badge">4 QRs</span>
                     </button>
-                    <button type="button" class="mode-tab" data-mode="4x4">
-                      <span class="mode-title">4×4 Big Square</span>
-                      <span class="mode-badge">16 QRs</span>
-                    </button>
-                    <button type="button" class="mode-tab" data-mode="6x6">
-                      <span class="mode-title">6×6 Matrix</span>
-                      <span class="mode-badge">36 QRs • Max Speed</span>
+                    <button type="button" class="mode-tab" data-mode="1x1">
+                      <span class="mode-title">1×1 Single QR</span>
+                      <span class="mode-badge">Flashing</span>
                     </button>
                   </div>
                   <p class="mode-hint" id="mode-hint-text">
-                    Displays 1 Giant high-resolution QR code on screen. Easily scanned by mobile cameras.
+                    Displays 16 QR codes in a square. Mobile scans all 16 at once; extra boxes stay empty!
                   </p>
                 </div>
 
@@ -316,8 +160,6 @@
                     <option value="150">Low (150 bytes) — Best for blurry/low-res cameras</option>
                     <option value="220" selected>Standard (220 bytes) — Recommended default</option>
                     <option value="320">High (320 bytes) — Faster for sharp HD cameras</option>
-                    <option value="600">Ultra (600 bytes) — High-throughput screens</option>
-                    <option value="1000">Extreme (1000 bytes) — Large files (up to 64 MB)</option>
                   </select>
                 </div>
               </div>
@@ -456,72 +298,15 @@
                 </div>
 
                 <p class="scan-instruction" id="scan-instruction-text">
-                  Point the receiving phone's camera at the QR code or matrix to capture frames. Extra boxes stay empty.
+                  Point the receiving phone's camera at the 16-QR matrix. Modern cameras capture all 16 codes in a single frame. Extra boxes stay empty.
                 </p>
               </div>
             </div>
           </div>
-          </div> <!-- Close #sender-engine-optical -->
         </section>
 
         <!-- ================= RECEIVER VIEW ================= -->
         <section id="receiver-view" class="view-panel">
-          <!-- P2P High-Speed Active Transfer Banner (Shown when P2P session active) -->
-          <div id="p2p-rec-card" class="card p2p-rec-card hidden">
-            <div class="display-header">
-              <div class="p2p-rec-title-group">
-                <span class="engine-badge-rec">⚡ WebRTC P2P Turbo</span>
-                <h2 class="card-title" id="p2p-rec-heading">Direct Peer-to-Peer Transfer</h2>
-              </div>
-              <div class="status-indicator">
-                <span id="p2p-rec-dot" class="status-dot dot-active"></span>
-                <span id="p2p-rec-status-text" class="status-text font-mono text-cyan">Connecting...</span>
-              </div>
-            </div>
-
-            <div class="file-info-box">
-              <div class="file-info-row">
-                <span class="info-label">File Name:</span>
-                <span id="p2p-rec-file-name" class="info-value font-mono">Receiving file stream...</span>
-              </div>
-              <div class="file-info-row">
-                <span class="info-label">File Size:</span>
-                <span id="p2p-rec-file-size" class="info-value font-mono">-</span>
-              </div>
-              <div class="file-info-row">
-                <span class="info-label">Transfer Speed:</span>
-                <span id="p2p-rec-speed" class="info-value font-mono text-success">-- MB/s</span>
-              </div>
-              <div class="file-info-row">
-                <span class="info-label">Transferred:</span>
-                <span id="p2p-rec-bytes" class="info-value font-mono">0 B / 0 B (0%)</span>
-              </div>
-            </div>
-
-            <div class="progress-track" style="height: 12px; margin: 12px 0;">
-              <div id="p2p-rec-progress-fill" class="progress-fill" style="width: 0%"></div>
-            </div>
-
-            <!-- P2P Reconstructed File Action -->
-            <div id="p2p-rec-success" class="reconstructed-card hidden">
-              <div class="success-banner">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <div>
-                  <h3 class="success-title">P2P File Transfer Complete!</h3>
-                  <p class="success-subtitle">CRC32 integrity verified. File ready for instant download.</p>
-                </div>
-              </div>
-              <div id="p2p-file-preview-area" class="file-preview-box hidden"></div>
-              <div class="action-row">
-                <button id="btn-p2p-download-file" class="btn btn-success btn-lg">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  Download File (<span id="p2p-download-size-badge"></span>)
-                </button>
-                <button id="btn-p2p-receive-another" class="btn btn-secondary">Close P2P Session</button>
-              </div>
-            </div>
-          </div>
-
           <div class="panel-grid">
             <!-- Left: Camera Viewfinder -->
             <div class="card receiver-camera-card">
@@ -533,52 +318,41 @@
                 </div>
               </div>
 
-              <!-- Camera Controls (Locked to Back Camera, No Flip/Dropdown Clutter) -->
+              <!-- Camera Controls -->
               <div class="camera-toolbar">
-                <button id="btn-camera-toggle" class="btn btn-primary btn-camera-main">
+                <button id="btn-camera-toggle" class="btn btn-primary">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                  <span id="camera-btn-text">Start Back Camera</span>
+                  <span id="camera-btn-text">Start Camera</span>
                 </button>
-                <div class="camera-badge-env">
-                  <span class="status-dot dot-active" style="width: 7px; height: 7px;"></span>
-                  <span>Locked: Back Camera (HD Wide View)</span>
-                </div>
+                <button id="btn-camera-flip" class="btn btn-secondary" disabled title="Switch front/rear camera">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8v3"/><polyline points="7 10 4 13 1 10"/><path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8v-3"/><polyline points="17 14 20 11 23 14"/></svg>
+                  Flip Camera
+                </button>
+                <select id="camera-select" class="form-select camera-select" disabled>
+                  <option value="">Default Camera</option>
+                </select>
               </div>
 
-              <!-- Manual P2P Session Connect Bar -->
-              <div class="p2p-manual-bar">
-                <span class="p2p-manual-label">Or connect via Session ID:</span>
-                <input type="text" id="input-p2p-code" class="form-input font-mono text-xs" placeholder="e.g. luma-abc123" />
-                <button type="button" id="btn-p2p-manual-connect" class="btn btn-xs btn-primary">Connect P2P</button>
-              </div>
-
-              <!-- Video Stream Container (Wide Rectangular Viewfinder) -->
+              <!-- Video Stream Container -->
               <div class="viewfinder-container">
                 <video id="receiver-video" playsinline muted autoplay></video>
                 <div class="viewfinder-overlay" id="viewfinder-overlay">
-                  <div class="reticle-hud">
-                    <span class="reticle-tag">
-                      <span class="status-dot dot-active" style="width: 6px; height: 6px;"></span>
-                      Wide-Angle Field View
-                    </span>
-                    <span class="reticle-tag" id="rec-engine-tag">Engine: WASM zxing-cpp</span>
-                  </div>
-                  <div class="reticle-wide">
+                  <div class="reticle">
                     <div class="reticle-corner tl"></div>
                     <div class="reticle-corner tr"></div>
                     <div class="reticle-corner bl"></div>
                     <div class="reticle-corner br"></div>
                     <div class="reticle-scanner"></div>
                   </div>
-                  <div id="rec-batch-badge" class="batch-capture-badge hidden">⚡ Multi-QR Frame Captured!</div>
-                  <p class="reticle-prompt" id="reticle-prompt-text">Align sender QR codes anywhere inside wide rectangular view</p>
+                  <div id="rec-batch-badge" class="batch-capture-badge hidden">⚡ +16 Chunks Scanned at Once!</div>
+                  <p class="reticle-prompt" id="reticle-prompt-text">Align QR matrix or code inside viewfinder</p>
                 </div>
                 <div id="camera-placeholder" class="camera-placeholder">
                   <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
                     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                     <circle cx="12" cy="13" r="4"/>
                   </svg>
-                  <p>Click "Start Back Camera" to begin scanning sender frames</p>
+                  <p>Click "Start Camera" to begin scanning sender frames</p>
                 </div>
               </div>
             </div>

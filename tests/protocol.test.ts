@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   createTransferPackets,
-  createSingleStaticPacket,
   serializePacket,
   parsePacket,
   TransferAssembler,
@@ -230,46 +229,6 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     const p4Info = sender.getFrameInfo();
     expect(p4Info.activeSlotsCount).toBe(2);
     expect(p4Info.emptySlotsCount).toBe(2); // 4 - 2 = 2 empty slots!
-
-    // Test 6x6 mode (36 slots)
-    sender.setGridMode('6x6');
-    expect(sender.getPageSize()).toBe(36);
-    expect(sender.getTotalPages()).toBe(1); // 18 packets fit in 1 page of 36 slots
-    const p6Info = sender.getFrameInfo();
-    expect(p6Info.activeSlotsCount).toBe(18);
-    expect(p6Info.emptySlotsCount).toBe(18); // 36 - 18 = 18 empty slots
-  });
-
-  it('should define MAX_FILE_BYTES as 64 MB (matching Decimen architecture)', async () => {
-    const { MAX_FILE_BYTES } = await import('../src/core/protocol');
-    expect(MAX_FILE_BYTES).toBe(64 * 1024 * 1024);
-  });
-
-  it('should support Single Static Giant QR for 1-shot transfer with 0 flashing', () => {
-    const rawData = new TextEncoder().encode('Single Static Giant QR Payload with Zero Flashing');
-    const staticPacket = createSingleStaticPacket(rawData, 'quick_secret.txt', 'text/plain');
-
-    expect(staticPacket.type).toBe('STATIC_FILE');
-    expect(staticPacket.file_size).toBe(rawData.byteLength);
-    expect(staticPacket.checksum).toBe(crc32(rawData));
-    expect(staticPacket.filename).toBe('quick_secret.txt');
-
-    const serialized = serializePacket(staticPacket);
-    const parsed = parsePacket(serialized);
-    expect(parsed).not.toBeNull();
-    expect(parsed?.type).toBe('STATIC_FILE');
-
-    const assembler = new TransferAssembler();
-    const result = assembler.addPacket(parsed!);
-    expect(result.accepted).toBe(true);
-    expect(result.isComplete).toBe(true);
-    expect(assembler.isComplete()).toBe(true);
-
-    const reconstructed = assembler.reconstruct();
-    expect(reconstructed).not.toBeNull();
-    expect(reconstructed?.fileName).toBe('quick_secret.txt');
-    expect(reconstructed?.fileBuffer).toEqual(rawData);
-    expect(reconstructed?.checksum).toBe(crc32(rawData));
   });
 });
 

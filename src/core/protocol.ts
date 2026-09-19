@@ -6,9 +6,8 @@
 export const PROTOCOL_HEADER = 'LUMA2:';
 export const PROTOCOL_VERSION = 2;
 export const DEFAULT_CHUNK_SIZE = 220; // Raw bytes per chunk
-export const MAX_FILE_BYTES = 64 * 1024 * 1024; // 64 MB file limit (matching Decimen)
 
-export type PacketType = 'TRANSFER_START' | 'DATA_FRAME' | 'TRANSFER_END' | 'STATIC_FILE';
+export type PacketType = 'TRANSFER_START' | 'DATA_FRAME' | 'TRANSFER_END';
 
 /**
  * 1. TRANSFER_START Frame
@@ -54,23 +53,7 @@ export interface TransferEndPacket {
   checksum: number; // CRC32 of full file
 }
 
-/**
- * 4. STATIC_FILE Frame
- * Transmitted as a single static giant QR for files <= 2.4 KB (1-shot transfer).
- */
-export interface StaticFilePacket {
-  type: 'STATIC_FILE';
-  protocol_version: number;
-  transfer_id: string;
-  filename: string;
-  file_ext: string;
-  mime_type: string;
-  file_size: number;
-  checksum: number;
-  payload: string; // Base64 encoded payload
-}
-
-export type ProtocolPacket = TransferStartPacket | DataFramePacket | TransferEndPacket | StaticFilePacket;
+export type ProtocolPacket = TransferStartPacket | DataFramePacket | TransferEndPacket;
 
 /**
  * Fast IEEE 802.3 CRC32 implementation
@@ -196,32 +179,6 @@ export function createTransferPackets(
 }
 
 /**
- * Create a single static packet for small files (<= 2400 bytes)
- * Allows instant 1-shot scan with 0 flashing or animation!
- */
-export function createSingleStaticPacket(
-  fileBuffer: Uint8Array,
-  fileName: string,
-  fileMime: string = 'application/octet-stream'
-): StaticFilePacket {
-  const fileExt = getFileExtension(fileName);
-  const fileChecksum = crc32(fileBuffer);
-  const transferId = Math.random().toString(36).substring(2, 10);
-
-  return {
-    type: 'STATIC_FILE',
-    protocol_version: PROTOCOL_VERSION,
-    transfer_id: transferId,
-    filename: fileName,
-    file_ext: fileExt,
-    mime_type: fileMime || 'application/octet-stream',
-    file_size: fileBuffer.byteLength,
-    checksum: fileChecksum,
-    payload: bytesToBase64(fileBuffer)
-  };
-}
-
-/**
  * Serialize packet into string for QR code embedding
  */
 export function serializePacket(packet: ProtocolPacket): string {
@@ -283,21 +240,6 @@ export function parsePacket(rawString: string): ProtocolPacket | null {
       ) {
         return obj as TransferEndPacket;
       }
-    } else if (obj.type === 'STATIC_FILE') {
-      if (
-        typeof obj.transfer_id === 'string' &&
-        typeof obj.filename === 'string' &&
-        typeof obj.file_size === 'number' &&
-        typeof obj.checksum === 'number' &&
-        typeof obj.payload === 'string'
-      ) {
-        const fileBytes = base64ToBytes(obj.payload);
-        if (crc32(fileBytes) !== obj.checksum) {
-          console.warn('[Protocol] Static file CRC mismatch');
-          return null;
-        }
-        return obj as StaticFilePacket;
-      }
     } else if (obj.v === 1 && typeof obj.id === 'string' && typeof obj.seq === 'number') {
       // Legacy Phase 1 format adapter
       const chunkBytes = base64ToBytes(obj.data);
@@ -354,7 +296,6 @@ export class TransferAssembler {
   private activeTransferId: string | null = null;
   private header: TransferStartPacket | null = null;
   private endPacket: TransferEndPacket | null = null;
-  private staticPacket: StaticFilePacket | null = null;
   private expectedTotalChunks: number = 0;
   private expectedFileSize: number = 0;
   private receivedChunks = new Map<number, Uint8Array>();
@@ -414,15 +355,6 @@ export class TransferAssembler {
         }
         isNew = true;
       }
-    } else if (packet.type === 'STATIC_FILE') {
-      if (!this.staticPacket) {
-        this.staticPacket = packet;
-        this.expectedTotalChunks = 1;
-        this.expectedFileSize = packet.file_size;
-        const chunkBytes = base64ToBytes(packet.payload);
-        this.receivedChunks.set(0, chunkBytes);
-        isNew = true;
-      }
     }
 
     return {
@@ -434,9 +366,6 @@ export class TransferAssembler {
   }
 
   public isComplete(): boolean {
-    if (this.staticPacket) {
-      return this.receivedChunks.has(0);
-    }
     if (this.expectedTotalChunks === 0) return false;
     if (this.receivedChunks.size !== this.expectedTotalChunks) return false;
 
@@ -490,16 +419,16 @@ export class TransferAssembler {
 
     return {
       transferId: this.activeTransferId || '',
-      fileName: this.staticPacket?.filename || this.header?.filename || 'Receiving stream...',
-      fileExt: this.staticPacket?.file_ext || this.header?.file_ext || '',
+      fileName: this.header?.filename || 'Receiving stream...',
+      fileExt: this.header?.file_ext || '',
       fileSize: this.expectedFileSize,
-      mimeType: this.staticPacket?.mime_type || this.header?.mime_type || 'application/octet-stream',
+      mimeType: this.header?.mime_type || 'application/octet-stream',
       totalChunks: total,
       receivedCount,
       percentage,
       isComplete: this.isComplete(),
-      hasStartHeader: this.header !== null || this.staticPacket !== null,
-      hasEndMarker: this.endPacket !== null || this.staticPacket !== null,
+      hasStartHeader: this.header !== null,
+      hasEndMarker: this.endPacket !== null,
       missingChunks,
       receivedIndices,
       rejectedCount: this.rejectedCount,
@@ -517,26 +446,6 @@ export class TransferAssembler {
     transferId: string;
   } | null {
     if (!this.isComplete()) return null;
-
-    if (this.staticPacket) {
-      const fullBuffer = this.receivedChunks.get(0);
-      if (!fullBuffer) return null;
-      const computedChecksum = crc32(fullBuffer);
-      if (computedChecksum !== this.staticPacket.checksum) {
-        console.error(`[Assembler] Static integrity mismatch: expected ${this.staticPacket.checksum}, got ${computedChecksum}`);
-        return null;
-      }
-      const blob = new Blob([fullBuffer as BlobPart], { type: this.staticPacket.mime_type });
-      return {
-        fileBuffer: fullBuffer,
-        blob,
-        fileName: this.staticPacket.filename,
-        fileExt: this.staticPacket.file_ext,
-        mimeType: this.staticPacket.mime_type,
-        checksum: computedChecksum,
-        transferId: this.activeTransferId || ''
-      };
-    }
 
     const fullBuffer = this.assembleBuffer();
     if (!fullBuffer) return null;
@@ -568,7 +477,6 @@ export class TransferAssembler {
     this.activeTransferId = null;
     this.header = null;
     this.endPacket = null;
-    this.staticPacket = null;
     this.expectedTotalChunks = 0;
     this.expectedFileSize = 0;
     this.receivedChunks.clear();
