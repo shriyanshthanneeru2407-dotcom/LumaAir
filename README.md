@@ -1,20 +1,18 @@
 # Luma — Cross-Device Optical File Transfer Platform
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/shriyanshthanneeru2407-dotcom/luma-optical-transfer)
+🌐 **Live Link**: [https://luma-air.vercel.app](https://luma-air.vercel.app)
 
 **Luma** is a high-speed, air-gapped cross-device file transfer application that streams binary files visually between screens and cameras using rapidly cycling animated QR code frames.
 
-- 🌐 **Zero Network Connection Required**: Transfers data without Wi-Fi, Bluetooth, local area networks, or cellular data.
+- 🌐 **Zero Network Required**: Transfers data without Wi-Fi, Bluetooth, local area networks, or cellular data.
 - 🔒 **Zero Cloud Storage**: No intermediary cloud server touches your file. Data moves directly via light photons from screen to camera.
-- ⚡ **Instant Deploy**: Ready to run on Vercel with zero configuration.
+- ⚡ **100% Free & Live**: Production deployed with full HTTPS for seamless camera permissions across phones, tablets, and computers.
 
 ---
 
-## 🚀 Live Vercel Deployment Link
+## 🚀 Live App
 
-You can deploy and access your live instance of Luma on Vercel:
-
-👉 **[Deploy Luma to Vercel (1-Click)](https://vercel.com/new/clone?repository-url=https://github.com/shriyanshthanneeru2407-dotcom/luma-optical-transfer)**
+👉 **[https://luma-air.vercel.app](https://luma-air.vercel.app)**
 
 GitHub Repository:
 👉 **[https://github.com/shriyanshthanneeru2407-dotcom/luma-optical-transfer](https://github.com/shriyanshthanneeru2407-dotcom/luma-optical-transfer)**
