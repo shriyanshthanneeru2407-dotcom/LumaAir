@@ -75,6 +75,18 @@ const senderFramePct = document.getElementById('sender-frame-pct') as HTMLSpanEl
 const senderLoopCounter = document.getElementById('sender-loop-counter') as HTMLSpanElement;
 const senderProgressFill = document.getElementById('sender-progress-fill') as HTMLDivElement;
 
+// Fullscreen Elements
+const qrWrapper = document.getElementById('qr-wrapper') as HTMLDivElement;
+const btnFullscreenToggle = document.getElementById('btn-fullscreen-toggle') as HTMLButtonElement | null;
+const btnFullscreenExit = document.getElementById('btn-fullscreen-exit') as HTMLButtonElement | null;
+const fullscreenBtnText = document.getElementById('fullscreen-btn-text') as HTMLSpanElement | null;
+const iconExpand = btnFullscreenToggle?.querySelector('.icon-expand') as SVGElement | null;
+const iconCompress = btnFullscreenToggle?.querySelector('.icon-compress') as SVGElement | null;
+const btnFsPrev = document.getElementById('btn-fs-prev') as HTMLButtonElement | null;
+const btnFsPlay = document.getElementById('btn-fs-play') as HTMLButtonElement | null;
+const btnFsNext = document.getElementById('btn-fs-next') as HTMLButtonElement | null;
+const fsPageIndicator = document.getElementById('fs-page-indicator') as HTMLSpanElement | null;
+
 let currentLoadedFile: File | null = null;
 
 const sender = new OpticalSender({
@@ -89,6 +101,10 @@ const sender = new OpticalSender({
 
 function updateSenderStateUI(state: SenderState) {
   senderStatusDot.className = 'status-dot';
+  if (btnFsPlay) {
+    btnFsPlay.textContent = state === 'TRANSMITTING' ? 'Pause' : 'Start Loop';
+  }
+
   switch (state) {
     case 'IDLE':
       senderStatusDot.classList.add('dot-idle');
@@ -150,6 +166,7 @@ function updateSenderFrameUI(info: FrameInfo) {
       senderFrameIndicator.textContent = `${info.frameIndex + 1} / ${info.totalFrames}`;
       if (senderSlotsIndicator) senderSlotsIndicator.textContent = `Frame ${info.frameIndex + 1}`;
       if (senderPageBadge) senderPageBadge.textContent = `Frame ${info.frameIndex + 1} / ${info.totalFrames}`;
+      if (fsPageIndicator) fsPageIndicator.textContent = `Frame ${info.frameIndex + 1} / ${info.totalFrames}`;
     } else {
       senderFrameIndicator.textContent = `Page ${info.currentPage + 1} / ${info.totalPages}`;
       if (senderSlotsIndicator) {
@@ -157,6 +174,9 @@ function updateSenderFrameUI(info: FrameInfo) {
       }
       if (senderPageBadge) {
         senderPageBadge.textContent = `Page ${info.currentPage + 1} of ${info.totalPages}`;
+      }
+      if (fsPageIndicator) {
+        fsPageIndicator.textContent = `Page ${info.currentPage + 1} / ${info.totalPages}`;
       }
     }
 
@@ -436,6 +456,112 @@ chunkSizeSelect.addEventListener('change', () => {
     handleFileSelected(currentLoadedFile);
   }
 });
+
+// ================= FULLSCREEN OPTICAL DISPLAY CONTROLLER =================
+function isCurrentlyFullscreen(): boolean {
+  return !!(
+    document.fullscreenElement ||
+    (document as any).webkitFullscreenElement ||
+    qrWrapper.classList.contains('is-fullscreen-fallback')
+  );
+}
+
+async function enterFullscreen() {
+  try {
+    if (qrWrapper.requestFullscreen) {
+      await qrWrapper.requestFullscreen();
+    } else if ((qrWrapper as any).webkitRequestFullscreen) {
+      await (qrWrapper as any).webkitRequestFullscreen();
+    } else {
+      qrWrapper.classList.add('is-fullscreen-fallback');
+    }
+  } catch {
+    qrWrapper.classList.add('is-fullscreen-fallback');
+  }
+  updateFullscreenUI(true);
+}
+
+async function exitFullscreen() {
+  qrWrapper.classList.remove('is-fullscreen-fallback');
+  try {
+    if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if ((document as any).webkitExitFullscreen) {
+        await (document as any).webkitExitFullscreen();
+      }
+    }
+  } catch {}
+  updateFullscreenUI(false);
+}
+
+function updateFullscreenUI(inFullscreen: boolean) {
+  if (fullscreenBtnText) {
+    fullscreenBtnText.textContent = inFullscreen ? 'Exit Full Screen' : 'Full Screen';
+  }
+  if (iconExpand && iconCompress) {
+    iconExpand.classList.toggle('hidden', inFullscreen);
+    iconCompress.classList.toggle('hidden', !inFullscreen);
+  }
+  if (btnFullscreenExit) {
+    btnFullscreenExit.classList.toggle('hidden', !inFullscreen);
+  }
+  const fsBar = document.getElementById('fullscreen-controls-bar');
+  if (fsBar) {
+    fsBar.classList.toggle('hidden', !inFullscreen);
+  }
+}
+
+if (btnFullscreenToggle) {
+  btnFullscreenToggle.addEventListener('click', () => {
+    if (isCurrentlyFullscreen()) {
+      exitFullscreen();
+    } else {
+      enterFullscreen();
+    }
+  });
+}
+
+if (btnFullscreenExit) {
+  btnFullscreenExit.addEventListener('click', () => {
+    exitFullscreen();
+  });
+}
+
+document.addEventListener('fullscreenchange', () => {
+  updateFullscreenUI(!!document.fullscreenElement);
+});
+document.addEventListener('webkitfullscreenchange', () => {
+  updateFullscreenUI(!!(document as any).webkitFullscreenElement);
+});
+
+// ESC and 'F' key shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && qrWrapper.classList.contains('is-fullscreen-fallback')) {
+    exitFullscreen();
+  }
+  if ((e.key === 'f' || e.key === 'F') && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+    if (isCurrentlyFullscreen()) exitFullscreen();
+    else enterFullscreen();
+  }
+});
+
+// Fullscreen in-overlay navigation buttons
+if (btnFsPrev) {
+  btnFsPrev.addEventListener('click', () => sender.prevFrame());
+}
+if (btnFsNext) {
+  btnFsNext.addEventListener('click', () => sender.nextFrame());
+}
+if (btnFsPlay) {
+  btnFsPlay.addEventListener('click', () => {
+    if (sender.getState() === 'TRANSMITTING') {
+      sender.pause();
+    } else {
+      sender.start();
+    }
+  });
+}
 
 // ================= RECEIVER CONTROLLER =================
 const receiverVideo = document.getElementById('receiver-video') as HTMLVideoElement;

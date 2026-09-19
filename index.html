@@ -191,9 +191,26 @@
             <div class="card sender-display-card">
               <div class="display-header">
                 <h2 class="card-title">2. Optical Display Screen</h2>
-                <div class="status-indicator">
-                  <span id="sender-status-dot" class="status-dot dot-idle"></span>
-                  <span id="sender-status-text" class="status-text">Ready</span>
+                <div class="display-header-actions">
+                  <button type="button" id="btn-fullscreen-toggle" class="btn btn-sm btn-secondary btn-fullscreen" title="Make QR Code Full Screen">
+                    <svg class="icon-expand" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="15 3 21 3 21 9"></polyline>
+                      <polyline points="9 21 3 21 3 15"></polyline>
+                      <line x1="21" y1="3" x2="14" y2="10"></line>
+                      <line x1="3" y1="21" x2="10" y2="14"></line>
+                    </svg>
+                    <svg class="icon-compress hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="4 14 10 14 10 20"></polyline>
+                      <polyline points="20 10 14 10 14 4"></polyline>
+                      <line x1="14" y1="10" x2="21" y2="3"></line>
+                      <line x1="3" y1="21" x2="10" y2="14"></line>
+                    </svg>
+                    <span id="fullscreen-btn-text">Full Screen</span>
+                  </button>
+                  <div class="status-indicator">
+                    <span id="sender-status-dot" class="status-dot dot-idle"></span>
+                    <span id="sender-status-text" class="status-text">Ready</span>
+                  </div>
                 </div>
               </div>
 
@@ -209,6 +226,12 @@
                 </div>
 
                 <div class="qr-frame-wrapper" id="qr-wrapper">
+                  <!-- Floating exit button for fullscreen -->
+                  <button type="button" id="btn-fullscreen-exit" class="btn-fullscreen-exit hidden" title="Exit Full Screen (Esc)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    <span>Exit Full Screen</span>
+                  </button>
+
                   <div id="qr-grid-container" class="qr-grid-matrix grid-4x4"></div>
                   <canvas id="sender-canvas" width="380" height="380" class="hidden"></canvas>
                   <div id="sender-placeholder" class="qr-placeholder">
@@ -218,6 +241,14 @@
                     </svg>
                     <p>Select a file to generate 16-QR matrix</p>
                     <span class="placeholder-sub">Mobile camera scans all 16 QR codes at once!</span>
+                  </div>
+
+                  <!-- Floating navigation bar in fullscreen -->
+                  <div id="fullscreen-controls-bar" class="fullscreen-controls-bar hidden">
+                    <button type="button" id="btn-fs-prev" class="btn btn-xs btn-ghost">⏮ Prev</button>
+                    <button type="button" id="btn-fs-play" class="btn btn-xs btn-primary">Start Loop</button>
+                    <button type="button" id="btn-fs-next" class="btn btn-xs btn-ghost">Next ⏭</button>
+                    <span id="fs-page-indicator" class="fs-page-badge font-mono text-cyan">Page 1 / 1</span>
                   </div>
                 </div>
 
