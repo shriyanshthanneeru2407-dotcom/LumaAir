@@ -1000,11 +1000,30 @@ input[type="range"] {
   padding: 8px;
 }
 
+.qr-grid-matrix.grid-3x3 {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 8px;
+  padding: 10px;
+}
+
 .qr-grid-matrix.grid-2x2 {
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(2, 1fr);
   gap: 12px;
   padding: 12px;
+}
+
+.qr-grid-matrix.grid-custom {
+  gap: 6px;
+  padding: 8px;
+}
+
+.qr-grid-matrix.grid-pairing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
 }
 
 .qr-grid-matrix.grid-1x1 {
@@ -1348,6 +1367,197 @@ input[type="range"] {
   border-radius: 9999px;
   border: 1px solid rgba(56, 189, 248, 0.3);
   white-space: nowrap;
+}
+
+/* ================= Optical Device Pairing & Handshake ================= */
+.pairing-banner-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.12), rgba(99, 102, 241, 0.12));
+  border: 1px solid rgba(6, 182, 212, 0.35);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  transition: all 0.2s ease;
+}
+
+.pairing-banner-card:hover {
+  border-color: rgba(6, 182, 212, 0.6);
+  box-shadow: 0 4px 15px rgba(6, 182, 212, 0.15);
+}
+
+.pairing-banner-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pairing-banner-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #06b6d4;
+}
+
+.pairing-banner-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.pairing-banner-desc {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.pairing-card-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 12px;
+  width: 100%;
+  height: 100%;
+}
+
+.pairing-badge-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(6, 182, 212, 0.15);
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  color: #0891b2;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  margin-bottom: 8px;
+}
+
+.pairing-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #06b6d4;
+  animation: pulse-dot 1.5s infinite;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(6, 182, 212, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+}
+
+.pairing-canvas-wrap {
+  background: #ffffff;
+  padding: 6px;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  margin-bottom: 6px;
+}
+
+.pairing-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.pairing-session {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.pairing-mode-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.pairing-hint {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0;
+  max-width: 280px;
+}
+
+/* Custom Modules Control */
+.custom-modules-control {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.custom-modules-header {
+  margin-bottom: 6px;
+}
+
+.custom-modules-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.custom-modules-note {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  margin: 6px 0 0 0;
+}
+
+/* Receiver Pairing Badge */
+.badge-pairing-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  transition: all 0.25s ease;
+}
+
+.badge-pairing-state.unlinked {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.badge-pairing-state.unlinked .pairing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.badge-pairing-state.linked {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+}
+
+.badge-pairing-state.linked .pairing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: pulse-dot 1.5s infinite;
 }
 
 /* Utilities */

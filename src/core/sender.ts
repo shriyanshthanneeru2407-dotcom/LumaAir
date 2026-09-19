@@ -1,14 +1,15 @@
 import QRCode from 'qrcode';
 import {
   createTransferPackets,
+  createPairingPacket,
   serializePacket,
   ProtocolPacket,
   PacketType,
   DEFAULT_CHUNK_SIZE
 } from './protocol';
 
-export type SenderState = 'IDLE' | 'LOADED' | 'TRANSMITTING' | 'PAUSED' | 'STOPPED';
-export type GridMode = '1x1' | '2x2' | '4x4';
+export type SenderState = 'IDLE' | 'PAIRING' | 'LOADED' | 'TRANSMITTING' | 'PAUSED' | 'STOPPED';
+export type GridMode = '1x1' | '2x2' | '3x3' | '4x4' | 'custom';
 
 export interface FrameInfo {
   frameIndex: number;
@@ -37,12 +38,13 @@ export class OpticalSender {
   private loopCount: number = 0;
   private state: SenderState = 'IDLE';
   private fps: number = 4; // FPS for 1x1 mode
-  private pageHoldSeconds: number = 1.5; // Seconds per page for 2x2 & 4x4
+  private pageHoldSeconds: number = 1.5; // Seconds per page for 2x2, 3x3 & 4x4
   private timerId: number | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private gridContainer: HTMLElement | null = null;
   private transferId: string = '';
-  private gridMode: GridMode = '4x4'; // Default to 4x4 16-QR matrix as requested
+  private gridMode: GridMode = '3x3'; // Default to 3x3 9-QR matrix as recommended sweet spot
+  private customSlotCount: number = 9;
 
   private onStateChangeCb?: (state: SenderState) => void;
   private onFrameChangeCb?: (info: FrameInfo) => void;
@@ -110,8 +112,21 @@ export class OpticalSender {
 
   public getPageSize(): number {
     if (this.gridMode === '4x4') return 16;
+    if (this.gridMode === '3x3') return 9;
     if (this.gridMode === '2x2') return 4;
+    if (this.gridMode === 'custom') return this.customSlotCount;
     return 1;
+  }
+
+  public setCustomSlotCount(count: number) {
+    this.customSlotCount = Math.max(1, Math.min(36, Math.round(count)));
+    if (this.gridMode === 'custom') {
+      this.setGridMode('custom');
+    }
+  }
+
+  public getCustomSlotCount(): number {
+    return this.customSlotCount;
   }
 
   public getTotalPages(): number {
@@ -251,7 +266,7 @@ export class OpticalSender {
       frameIndex: this.currentFrameIndex,
       totalFrames: this.packets.length,
       loopCount: this.loopCount,
-      frameType: curPacket?.type || 'TRANSFER_START',
+      frameType: this.state === 'PAIRING' ? 'DEVICE_PAIR' : (curPacket?.type || 'TRANSFER_START'),
       transferId: this.transferId,
       fileName: this.file?.name || '',
       fileExt: this.file ? this.file.name.split('.').pop() || '' : '',
@@ -363,8 +378,26 @@ export class OpticalSender {
         cellEl.appendChild(badge);
         this.gridContainer.appendChild(cellEl);
 
-        const qrWidth = this.gridMode === '4x4' ? 140 : (this.gridMode === '2x2' ? 200 : 360);
-        const qrMargin = this.gridMode === '4x4' ? 1 : 2;
+        let qrWidth = 140;
+        let qrMargin = 1;
+        if (this.gridMode === '4x4') {
+          qrWidth = 140;
+          qrMargin = 1;
+        } else if (this.gridMode === '3x3') {
+          qrWidth = 180;
+          qrMargin = 2;
+        } else if (this.gridMode === '2x2') {
+          qrWidth = 220;
+          qrMargin = 2;
+        } else if (this.gridMode === '1x1') {
+          qrWidth = 360;
+          qrMargin = 2;
+        } else if (this.gridMode === 'custom') {
+          const cols = Math.ceil(Math.sqrt(pageSize));
+          this.gridContainer.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+          qrWidth = Math.max(90, Math.min(240, Math.floor(520 / cols)));
+          qrMargin = cols > 3 ? 1 : 2;
+        }
 
         const p = QRCode.toCanvas(canvas, serializePacket(packet), {
           errorCorrectionLevel: 'M',
@@ -393,6 +426,67 @@ export class OpticalSender {
     }
 
     await Promise.all(slotRenderPromises);
+  }
+
+  public getPairingPacket(): ProtocolPacket {
+    if (!this.transferId) {
+      this.transferId = Math.random().toString(36).substring(2, 10);
+    }
+    return createPairingPacket(
+      this.transferId,
+      'Luma Optical Sender',
+      this.gridMode,
+      this.getPageSize()
+    );
+  }
+
+  public async renderPairingQr(): Promise<void> {
+    this.stop();
+    const packet = this.getPairingPacket();
+    const qrData = serializePacket(packet);
+
+    if (this.gridContainer) {
+      this.gridContainer.className = 'qr-grid-matrix grid-pairing';
+      this.gridContainer.innerHTML = '';
+      this.gridContainer.style.gridTemplateColumns = '1fr';
+
+      const pairCard = document.createElement('div');
+      pairCard.className = 'pairing-card-inner';
+      pairCard.innerHTML = `
+        <div class="pairing-badge-header">
+          <span class="pairing-pulse-dot"></span>
+          <span>OPTICAL DEVICE PAIRING</span>
+        </div>
+        <div class="pairing-canvas-wrap">
+          <canvas id="pairing-canvas" class="pairing-canvas"></canvas>
+        </div>
+        <div class="pairing-meta">
+          <span class="pairing-session font-mono">Session #${this.transferId}</span>
+          <span class="pairing-mode-badge">${this.gridMode.toUpperCase()} (${this.getPageSize()} Modules)</span>
+        </div>
+        <p class="pairing-hint">Open Camera on Receiver and point at this QR to connect devices!</p>
+      `;
+      this.gridContainer.appendChild(pairCard);
+
+      const pCanvas = pairCard.querySelector('#pairing-canvas') as HTMLCanvasElement;
+      if (pCanvas) {
+        await QRCode.toCanvas(pCanvas, qrData, {
+          errorCorrectionLevel: 'H',
+          margin: 2,
+          width: 300,
+          color: { dark: '#000000', light: '#ffffff' }
+        });
+      }
+    } else if (this.canvas) {
+      await QRCode.toCanvas(this.canvas, qrData, {
+        errorCorrectionLevel: 'H',
+        margin: 2,
+        width: 340,
+        color: { dark: '#000000', light: '#ffffff' }
+      });
+    }
+
+    this.setState('PAIRING');
   }
 
   private setState(state: SenderState) {

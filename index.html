@@ -55,7 +55,20 @@
           <div class="panel-grid">
             <!-- Left: File Upload & Controls -->
             <div class="card sender-controls-card">
-              <h2 class="card-title">1. Select File to Transmit</h2>
+              <!-- Step 1: Connect Devices Handshake -->
+              <div class="pairing-banner-card" id="sender-pairing-banner">
+                <div class="pairing-banner-info">
+                  <span class="pairing-banner-badge">Step 1 • Optical Handshake</span>
+                  <h3 class="pairing-banner-title">Connect Devices</h3>
+                  <p class="pairing-banner-desc">Pair receiver phone camera with sender before streaming data</p>
+                </div>
+                <button type="button" id="btn-sender-pair" class="btn btn-sm btn-accent">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  <span>Pair Devices</span>
+                </button>
+              </div>
+
+              <h2 class="card-title">2. Select File & Choose Modules</h2>
               
               <label class="dropzone" id="file-dropzone" for="file-input">
                 <input type="file" id="file-input" class="file-input-hidden" />
@@ -123,13 +136,21 @@
                 <div class="setting-item">
                   <label class="setting-title-label">Optical Transmission Mode:</label>
                   <div class="mode-selector-tabs" id="grid-mode-selector">
-                    <button type="button" class="mode-tab active" data-mode="4x4">
+                    <button type="button" class="mode-tab active" data-mode="3x3">
+                      <span class="mode-title">3×3 Big Square</span>
+                      <span class="mode-badge">9 QRs • Sweet Spot</span>
+                    </button>
+                    <button type="button" class="mode-tab" data-mode="4x4">
                       <span class="mode-title">4×4 Big Square</span>
-                      <span class="mode-badge">16 QRs • Simultaneous</span>
+                      <span class="mode-badge">16 QRs • Max Speed</span>
                     </button>
                     <button type="button" class="mode-tab" data-mode="2x2">
                       <span class="mode-title">2×2 Grid</span>
                       <span class="mode-badge">4 QRs</span>
+                    </button>
+                    <button type="button" class="mode-tab" data-mode="custom">
+                      <span class="mode-title">Custom Modules</span>
+                      <span class="mode-badge">Choose No.</span>
                     </button>
                     <button type="button" class="mode-tab" data-mode="1x1">
                       <span class="mode-title">1×1 Single QR</span>
@@ -137,8 +158,26 @@
                     </button>
                   </div>
                   <p class="mode-hint" id="mode-hint-text">
-                    Displays 16 QR codes in a square. Mobile scans all 16 at once; extra boxes stay empty!
+                    ⭐ 3×3 Big Square (9 QRs): The recommended sweet spot for smartphone cameras. Scans 9 codes in 1 frame without misses.
                   </p>
+                  <!-- Custom Module Count Selector -->
+                  <div id="custom-modules-container" class="custom-modules-control hidden">
+                    <div class="custom-modules-header">
+                      <label for="custom-modules-slider" class="custom-modules-label">
+                        <span>Modules per Frame:</span>
+                        <span id="custom-modules-val" class="font-mono text-cyan">9 modules</span>
+                      </label>
+                    </div>
+                    <input type="range" id="custom-modules-slider" min="1" max="25" value="9" step="1" />
+                    <div class="slider-ticks">
+                      <span>4 (2x2)</span>
+                      <span>9 (3x3 Optimal)</span>
+                      <span>16 (4x4)</span>
+                      <span>20 (Test)</span>
+                      <span>25 (5x5)</span>
+                    </div>
+                    <p class="custom-modules-note">Notice: 20 modules forms a non-square 5×4 grid. 9 (3×3) and 16 (4×4) form perfect squares ideal for camera focus.</p>
+                  </div>
                 </div>
 
                 <div class="setting-item" id="timing-setting-item">
@@ -366,6 +405,13 @@
 
               <!-- Live File Reception Stats -->
               <div id="receiver-file-stats" class="file-info-box">
+                <div class="file-info-row pairing-status-row">
+                  <span class="info-label">Device Link:</span>
+                  <span id="rec-pairing-status" class="badge-pairing-state unlinked">
+                    <span class="pairing-dot"></span>
+                    <span id="rec-pairing-text">Not Connected (Scan Pairing QR)</span>
+                  </span>
+                </div>
                 <div class="file-info-row">
                   <span class="info-label">Session ID:</span>
                   <span id="rec-session-id" class="info-value font-mono text-cyan">Unlocked (Awaiting Stream)</span>

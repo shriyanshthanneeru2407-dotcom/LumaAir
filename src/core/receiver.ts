@@ -4,6 +4,7 @@ import {
   TransferAssembler,
   TransferProgress,
   ProtocolPacket,
+  DevicePairPacket,
   AddPacketResult
 } from './protocol';
 
@@ -25,6 +26,7 @@ export interface ReconstructedFile {
 export interface ReceiverCallbacks {
   onStateChange?: (state: ReceiverState, detail?: string) => void;
   onProgress?: (progress: TransferProgress, latestPacket: ProtocolPacket | null) => void;
+  onDevicePaired?: (packet: DevicePairPacket) => void;
   onFileComplete?: (file: ReconstructedFile) => void;
   onFrameRejected?: (packet: ProtocolPacket, reason: string) => void;
   onBatchScanned?: (acceptedInFrame: number, totalFoundInFrame: number) => void;
@@ -328,7 +330,14 @@ export class OpticalReceiver {
       return false;
     }
 
-    if (this.state !== 'RECEIVING' && this.state !== 'COMPLETE') {
+    if (packet.type === 'DEVICE_PAIR') {
+      if (this.callbacks.onDevicePaired) {
+        this.callbacks.onDevicePaired(packet as DevicePairPacket);
+      }
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try { navigator.vibrate([60, 60, 120]); } catch {}
+      }
+    } else if (this.state !== 'RECEIVING' && this.state !== 'COMPLETE') {
       this.setState('RECEIVING');
     }
 

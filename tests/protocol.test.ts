@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createTransferPackets,
+  createPairingPacket,
   serializePacket,
   parsePacket,
   TransferAssembler,
@@ -229,6 +230,49 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     const p4Info = sender.getFrameInfo();
     expect(p4Info.activeSlotsCount).toBe(2);
     expect(p4Info.emptySlotsCount).toBe(2); // 4 - 2 = 2 empty slots!
+
+    // Test 3x3 recommended sweet spot mode (9 modules)
+    sender.setGridMode('3x3');
+    expect(sender.getPageSize()).toBe(9);
+    expect(sender.getTotalPages()).toBe(2); // 18 / 9 = 2 pages
+    sender.seekPage(0);
+    const p3Info = sender.getFrameInfo();
+    expect(p3Info.activeSlotsCount).toBe(9);
+    expect(p3Info.emptySlotsCount).toBe(0);
+
+    // Test custom slot count (e.g. 20 modules)
+    sender.setGridMode('custom');
+    sender.setCustomSlotCount(20);
+    expect(sender.getPageSize()).toBe(20);
+    expect(sender.getTotalPages()).toBe(1); // 18 packets fit in 20 slots
+    sender.seekPage(0);
+    const customInfo = sender.getFrameInfo();
+    expect(customInfo.activeSlotsCount).toBe(18);
+    expect(customInfo.emptySlotsCount).toBe(2); // 20 - 18 = 2 empty slots
+  });
+
+  it('should support Device Connection Handshake (DEVICE_PAIR frame)', () => {
+    const pairPacket = createPairingPacket('pair1234', 'Sender Phone', '3x3', 9);
+    expect(pairPacket.type).toBe('DEVICE_PAIR');
+    expect(pairPacket.transfer_id).toBe('pair1234');
+    expect(pairPacket.grid_mode).toBe('3x3');
+    expect(pairPacket.module_count).toBe(9);
+
+    const serialized = serializePacket(pairPacket);
+    const parsed = parsePacket(serialized);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.type).toBe('DEVICE_PAIR');
+    expect(parsed?.transfer_id).toBe('pair1234');
+
+    // Feed pairing packet to assembler
+    const assembler = new TransferAssembler();
+    const result = assembler.addPacket(parsed!);
+    expect(result.accepted).toBe(true);
+    expect(result.packetType).toBe('DEVICE_PAIR');
+
+    const progress = assembler.getProgress();
+    expect(progress.isPaired).toBe(true);
+    expect(progress.transferId).toBe('pair1234');
   });
 });
 

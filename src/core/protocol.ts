@@ -7,7 +7,21 @@ export const PROTOCOL_HEADER = 'LUMA2:';
 export const PROTOCOL_VERSION = 2;
 export const DEFAULT_CHUNK_SIZE = 220; // Raw bytes per chunk
 
-export type PacketType = 'TRANSFER_START' | 'DATA_FRAME' | 'TRANSFER_END';
+export type PacketType = 'DEVICE_PAIR' | 'TRANSFER_START' | 'DATA_FRAME' | 'TRANSFER_END';
+
+/**
+ * 0. DEVICE_PAIR Frame
+ * Transmitted to connect and pair sender with receiver before file transfer.
+ */
+export interface DevicePairPacket {
+  type: 'DEVICE_PAIR';
+  protocol_version: number;
+  transfer_id: string; // Unique Session ID
+  device_name: string;
+  grid_mode: string;
+  module_count: number;
+  timestamp: number;
+}
 
 /**
  * 1. TRANSFER_START Frame
@@ -53,7 +67,7 @@ export interface TransferEndPacket {
   checksum: number; // CRC32 of full file
 }
 
-export type ProtocolPacket = TransferStartPacket | DataFramePacket | TransferEndPacket;
+export type ProtocolPacket = DevicePairPacket | TransferStartPacket | DataFramePacket | TransferEndPacket;
 
 /**
  * Fast IEEE 802.3 CRC32 implementation
@@ -106,6 +120,26 @@ export function getFileExtension(filename: string): string {
     return filename.substring(dotIndex + 1).toLowerCase();
   }
   return '';
+}
+
+/**
+ * Create a DEVICE_PAIR packet for optical device handshake
+ */
+export function createPairingPacket(
+  transferId: string,
+  deviceName: string = 'Luma Sender',
+  gridMode: string = '3x3',
+  moduleCount: number = 9
+): DevicePairPacket {
+  return {
+    type: 'DEVICE_PAIR',
+    protocol_version: PROTOCOL_VERSION,
+    transfer_id: transferId,
+    device_name: deviceName,
+    grid_mode: gridMode,
+    module_count: moduleCount,
+    timestamp: Date.now()
+  };
 }
 
 /**
@@ -206,7 +240,21 @@ export function parsePacket(rawString: string): ProtocolPacket | null {
     if (!obj || typeof obj !== 'object') return null;
 
     // Phase 2 packet handling
-    if (obj.type === 'TRANSFER_START') {
+    if (obj.type === 'DEVICE_PAIR') {
+      if (
+        typeof obj.transfer_id === 'string'
+      ) {
+        return {
+          type: 'DEVICE_PAIR',
+          protocol_version: obj.protocol_version || PROTOCOL_VERSION,
+          transfer_id: obj.transfer_id,
+          device_name: obj.device_name || 'Luma Sender',
+          grid_mode: obj.grid_mode || '3x3',
+          module_count: obj.module_count || 9,
+          timestamp: obj.timestamp || Date.now()
+        } as DevicePairPacket;
+      }
+    } else if (obj.type === 'TRANSFER_START') {
       if (
         typeof obj.transfer_id === 'string' &&
         typeof obj.filename === 'string' &&
@@ -279,6 +327,8 @@ export interface TransferProgress {
   receivedIndices: number[];
   rejectedCount: number;
   lastRejectedTransferId: string | null;
+  isPaired: boolean;
+  pairedDeviceName: string;
 }
 
 export interface AddPacketResult {
@@ -301,6 +351,8 @@ export class TransferAssembler {
   private receivedChunks = new Map<number, Uint8Array>();
   private rejectedCount: number = 0;
   private lastRejectedTransferId: string | null = null;
+  private isPaired: boolean = false;
+  private pairedDeviceName: string = '';
 
   /**
    * Feed a decoded packet into assembler.
@@ -330,7 +382,17 @@ export class TransferAssembler {
 
     let isNew = false;
 
-    if (packet.type === 'TRANSFER_START') {
+    if (packet.type === 'DEVICE_PAIR') {
+      const wasPaired = this.isPaired;
+      this.isPaired = true;
+      this.pairedDeviceName = packet.device_name || 'Luma Sender';
+      return {
+        accepted: true,
+        isNew: !wasPaired,
+        isComplete: false,
+        packetType: 'DEVICE_PAIR'
+      };
+    } else if (packet.type === 'TRANSFER_START') {
       if (!this.header) {
         this.header = packet;
         this.expectedTotalChunks = packet.total_chunks;
@@ -432,7 +494,9 @@ export class TransferAssembler {
       missingChunks,
       receivedIndices,
       rejectedCount: this.rejectedCount,
-      lastRejectedTransferId: this.lastRejectedTransferId
+      lastRejectedTransferId: this.lastRejectedTransferId,
+      isPaired: this.isPaired,
+      pairedDeviceName: this.pairedDeviceName
     };
   }
 
@@ -482,5 +546,7 @@ export class TransferAssembler {
     this.receivedChunks.clear();
     this.rejectedCount = 0;
     this.lastRejectedTransferId = null;
+    this.isPaired = false;
+    this.pairedDeviceName = '';
   }
 }

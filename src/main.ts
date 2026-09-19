@@ -50,6 +50,10 @@ const senderCycleTime = document.getElementById('sender-cycle-time') as HTMLSpan
 const senderFrameTypeBadge = document.getElementById('sender-frame-type-badge') as HTMLDivElement | null;
 const senderPageBadge = document.getElementById('sender-page-badge') as HTMLSpanElement | null;
 const senderSlotsIndicator = document.getElementById('sender-slots-indicator') as HTMLSpanElement | null;
+const btnSenderPair = document.getElementById('btn-sender-pair') as HTMLButtonElement | null;
+const customModulesContainer = document.getElementById('custom-modules-container') as HTMLDivElement | null;
+const customModulesSlider = document.getElementById('custom-modules-slider') as HTMLInputElement | null;
+const customModulesVal = document.getElementById('custom-modules-val') as HTMLSpanElement | null;
 
 const modeTabs = document.querySelectorAll<HTMLButtonElement>('.mode-tab');
 const modeHintText = document.getElementById('mode-hint-text') as HTMLParagraphElement | null;
@@ -96,7 +100,7 @@ const sender = new OpticalSender({
   gridContainer: qrGridContainer,
   fps: 4,
   pageHoldSeconds: 1.5,
-  gridMode: '4x4',
+  gridMode: '3x3',
   onStateChange: updateSenderStateUI,
   onFrameChange: updateSenderFrameUI
 });
@@ -114,6 +118,20 @@ function updateSenderStateUI(state: SenderState) {
   };
 
   switch (state) {
+    case 'PAIRING':
+      senderStatusDot.classList.add('dot-active');
+      senderStatusText.textContent = 'Pairing Mode';
+      btnSenderStart.disabled = true;
+      btnSenderPause.disabled = true;
+      btnSenderStop.disabled = false;
+      btnSenderPrev.disabled = true;
+      btnSenderNext.disabled = true;
+      syncFsButtons(true, true, false, true, true);
+      senderPlaceholder.classList.add('hidden');
+      if (senderCanvas) senderCanvas.classList.add('hidden');
+      if (qrGridContainer) qrGridContainer.classList.remove('hidden');
+      break;
+
     case 'IDLE':
       senderStatusDot.classList.add('dot-idle');
       senderStatusText.textContent = 'Idle';
@@ -200,12 +218,21 @@ function updateSenderFrameUI(info: FrameInfo) {
 
     if (senderFrameTypeBadge) {
       senderFrameTypeBadge.className = 'badge-frame-type';
-      if (mode === '4x4') {
+      if (info.frameType === 'DEVICE_PAIR') {
+        senderFrameTypeBadge.classList.add('type-start');
+        senderFrameTypeBadge.textContent = `🔗 PAIRING BEACON (Session #${info.transferId})`;
+      } else if (mode === '3x3') {
+        senderFrameTypeBadge.classList.add('type-data');
+        senderFrameTypeBadge.textContent = `⭐ 3×3 MATRIX (Page ${info.currentPage + 1}/${info.totalPages})`;
+      } else if (mode === '4x4') {
         senderFrameTypeBadge.classList.add('type-data');
         senderFrameTypeBadge.textContent = `⚡ 16-QR MATRIX (Page ${info.currentPage + 1}/${info.totalPages})`;
       } else if (mode === '2x2') {
         senderFrameTypeBadge.classList.add('type-data');
         senderFrameTypeBadge.textContent = `⚡ 2×2 GRID (Page ${info.currentPage + 1}/${info.totalPages})`;
+      } else if (mode === 'custom') {
+        senderFrameTypeBadge.classList.add('type-data');
+        senderFrameTypeBadge.textContent = `⚙️ CUSTOM ${sender.getPageSize()}-MOD MATRIX (Page ${info.currentPage + 1}/${info.totalPages})`;
       } else {
         if (info.frameType === 'TRANSFER_START') {
           senderFrameTypeBadge.classList.add('type-start');
@@ -295,7 +322,11 @@ async function handleFileSelected(file: File) {
 }
 
 // Optical Transmission Mode Tabs
-function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4') {
+function updateTimingControlsForMode(mode: '1x1' | '2x2' | '3x3' | '4x4' | 'custom') {
+  if (customModulesContainer) {
+    customModulesContainer.classList.toggle('hidden', mode !== 'custom');
+  }
+
   if (mode === '1x1') {
     if (timingLabelText) timingLabelText.textContent = 'Transmission Speed:';
     fpsLabel.textContent = `${sender.getFps()} FPS`;
@@ -331,14 +362,26 @@ function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4') {
       `;
     }
     if (modeHintText) {
-      modeHintText.textContent = mode === '4x4'
-        ? 'Displays 16 QR codes in a square. Mobile scans all 16 at once; extra boxes stay empty!'
-        : 'Displays 4 QR codes in a 2×2 grid for smaller screens or mid-range phone cameras.';
+      if (mode === '3x3') {
+        modeHintText.textContent = '⭐ 3×3 Big Square (9 QRs): The golden ratio for smartphone cameras. Fast, reliable, zero missed codes.';
+      } else if (mode === '4x4') {
+        modeHintText.textContent = 'Displays 16 QR codes in a 4×4 square. Maximum throughput for sharp 1080p/4K cameras.';
+      } else if (mode === '2x2') {
+        modeHintText.textContent = 'Displays 4 QR codes in a 2×2 grid for smaller screens or compact mobile-to-mobile transfer.';
+      } else if (mode === 'custom') {
+        modeHintText.textContent = `Custom module matrix (${sender.getPageSize()} modules). Test 20 modules or choose the right number for your camera setup.`;
+      }
     }
     if (scanInstructionText) {
-      scanInstructionText.textContent = mode === '4x4'
-        ? 'Point the receiving phone camera at the 16-QR matrix. Mobile scans all 16 codes at once. Extra boxes stay empty.'
-        : 'Point camera at the 2×2 grid to capture 4 chunks simultaneously.';
+      if (mode === '3x3') {
+        scanInstructionText.textContent = 'Point receiving phone camera at the 3×3 matrix. Scans all 9 QR codes at once.';
+      } else if (mode === '4x4') {
+        scanInstructionText.textContent = 'Point receiving phone camera at the 16-QR matrix. Mobile scans all 16 codes at once. Extra boxes stay empty.';
+      } else if (mode === '2x2') {
+        scanInstructionText.textContent = 'Point camera at the 2×2 grid to capture 4 chunks simultaneously.';
+      } else if (mode === 'custom') {
+        scanInstructionText.textContent = `Point camera at the ${sender.getPageSize()}-module matrix to capture all codes simultaneously.`;
+      }
     }
   }
   const info = sender.getFrameInfo();
@@ -353,7 +396,7 @@ function updateTimingControlsForMode(mode: '1x1' | '2x2' | '4x4') {
 
 modeTabs.forEach(tab => {
   tab.addEventListener('click', () => {
-    const mode = tab.getAttribute('data-mode') as '1x1' | '2x2' | '4x4';
+    const mode = tab.getAttribute('data-mode') as '1x1' | '2x2' | '3x3' | '4x4' | 'custom';
     if (!mode) return;
     modeTabs.forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
@@ -361,6 +404,27 @@ modeTabs.forEach(tab => {
     updateTimingControlsForMode(mode);
   });
 });
+
+if (customModulesSlider && customModulesVal) {
+  customModulesSlider.addEventListener('input', () => {
+    const val = parseInt(customModulesSlider.value, 10);
+    customModulesVal.textContent = `${val} modules`;
+    sender.setCustomSlotCount(val);
+    updateTimingControlsForMode('custom');
+  });
+}
+
+if (btnSenderPair) {
+  btnSenderPair.addEventListener('click', async () => {
+    clearSenderAlert();
+    try {
+      await sender.renderPairingQr();
+      showSenderAlert('Optical Pairing QR displayed. Point receiver camera here to pair!', 'info');
+    } catch (err: any) {
+      showSenderAlert(`Pairing error: ${err.message || err}`, 'error');
+    }
+  });
+}
 
 // Window-level drag protection to prevent opening dropped files as browser URLs
 window.addEventListener('dragover', (e) => e.preventDefault());
@@ -586,6 +650,8 @@ const cameraPlaceholder = document.getElementById('camera-placeholder') as HTMLD
 const viewfinderOverlay = document.getElementById('viewfinder-overlay') as HTMLDivElement;
 const recBatchBadge = document.getElementById('rec-batch-badge') as HTMLDivElement | null;
 const recMultiIngestion = document.getElementById('rec-multi-ingestion') as HTMLSpanElement | null;
+const recPairingStatus = document.getElementById('rec-pairing-status') as HTMLSpanElement | null;
+const recPairingText = document.getElementById('rec-pairing-text') as HTMLSpanElement | null;
 
 const receiverStatusDot = document.getElementById('receiver-status-dot') as HTMLSpanElement;
 const receiverStatusText = document.getElementById('receiver-status-text') as HTMLSpanElement;
@@ -646,6 +712,24 @@ const receiver = new OpticalReceiver({
   onProgress: (progress: TransferProgress, latestPacket: ProtocolPacket | null) => {
     updateReceiverDashboard(progress, latestPacket);
   },
+  onDevicePaired: (packet) => {
+    if (recPairingStatus && recPairingText) {
+      recPairingStatus.className = 'badge-pairing-state linked';
+      recPairingText.textContent = `🔗 Connected (#${packet.transfer_id})`;
+    }
+    if (recSessionId) {
+      recSessionId.textContent = `#${packet.transfer_id} (Paired)`;
+    }
+    if (recProtocolStatus) {
+      recProtocolStatus.textContent = `Paired — ${packet.grid_mode.toUpperCase()} (${packet.module_count} Modules) Ready`;
+      recProtocolStatus.className = 'info-value font-mono text-cyan';
+    }
+    confetti({
+      particleCount: 40,
+      spread: 60,
+      origin: { y: 0.6 }
+    });
+  },
   onFrameRejected: (_packet: ProtocolPacket, reason: string) => {
     if (recRejectedAlert) {
       recRejectedAlert.classList.remove('hidden');
@@ -674,6 +758,19 @@ const receiver = new OpticalReceiver({
 });
 
 function updateReceiverDashboard(progress: TransferProgress, _latestPacket: ProtocolPacket | null) {
+  if (recPairingStatus && recPairingText) {
+    if (progress.isPaired) {
+      recPairingStatus.className = 'badge-pairing-state linked';
+      recPairingText.textContent = `🔗 Connected (#${progress.transferId})`;
+    } else if (progress.transferId) {
+      recPairingStatus.className = 'badge-pairing-state linked';
+      recPairingText.textContent = `🔗 Locked (#${progress.transferId})`;
+    } else {
+      recPairingStatus.className = 'badge-pairing-state unlinked';
+      recPairingText.textContent = 'Not Connected (Scan Pairing QR)';
+    }
+  }
+
   if (recSessionId) {
     recSessionId.textContent = progress.transferId ? `#${progress.transferId} (Locked)` : 'Unlocked (Awaiting Stream)';
   }
@@ -786,12 +883,20 @@ btnReceiveAnother.addEventListener('click', () => {
   receiver.resetTransfer();
   reconstructedCard.classList.add('hidden');
   filePreviewArea.classList.add('hidden');
+  if (recPairingStatus && recPairingText) {
+    recPairingStatus.className = 'badge-pairing-state unlinked';
+    recPairingText.textContent = 'Not Connected (Scan Pairing QR)';
+  }
 });
 
 btnReceiverReset.addEventListener('click', () => {
   receiver.resetTransfer();
   reconstructedCard.classList.add('hidden');
   filePreviewArea.classList.add('hidden');
+  if (recPairingStatus && recPairingText) {
+    recPairingStatus.className = 'badge-pairing-state unlinked';
+    recPairingText.textContent = 'Not Connected (Scan Pairing QR)';
+  }
 });
 
 // Camera controls
