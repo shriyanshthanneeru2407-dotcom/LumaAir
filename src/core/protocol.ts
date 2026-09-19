@@ -5,9 +5,10 @@
 
 export const PROTOCOL_HEADER = 'LUMA2:';
 export const PROTOCOL_VERSION = 2;
-export const DEFAULT_CHUNK_SIZE = 220; // Raw bytes per chunk
+export const MODULES_PER_BATCH = 16; // 16 chunk modules bundled inside 1 single QR code
+export const DEFAULT_CHUNK_SIZE = 80; // Raw bytes per chunk module (~80B * 16 = 1280B payload)
 
-export type PacketType = 'DEVICE_PAIR' | 'TRANSFER_START' | 'DATA_FRAME' | 'TRANSFER_END';
+export type PacketType = 'DEVICE_PAIR' | 'TRANSFER_START' | 'BATCH_FRAME' | 'DATA_FRAME' | 'TRANSFER_END';
 
 /**
  * 0. DEVICE_PAIR Frame
@@ -41,7 +42,30 @@ export interface TransferStartPacket {
 }
 
 /**
- * 2. DATA_FRAME Frame
+ * Single module contained inside a BATCH_FRAME
+ */
+export interface BatchModule {
+  seq: number;      // 0-indexed sequence number
+  payload: string;  // Base64 encoded payload
+  crc: number;      // CRC32 of this module chunk's raw bytes
+}
+
+/**
+ * 2A. BATCH_FRAME Frame (16 Modules in 1 single 1x1 QR Code)
+ * Bundles up to 16 data modules together into one single QR code.
+ */
+export interface BatchFramePacket {
+  type: 'BATCH_FRAME';
+  protocol_version: number;
+  transfer_id: string;
+  batch_index: number;
+  total_batches: number;
+  total_chunks: number;
+  modules: BatchModule[];
+}
+
+/**
+ * 2B. DATA_FRAME Frame (Legacy / Single Chunk Mode)
  * Transmitted for each chunk of data.
  */
 export interface DataFramePacket {
@@ -67,7 +91,7 @@ export interface TransferEndPacket {
   checksum: number; // CRC32 of full file
 }
 
-export type ProtocolPacket = DevicePairPacket | TransferStartPacket | DataFramePacket | TransferEndPacket;
+export type ProtocolPacket = DevicePairPacket | TransferStartPacket | BatchFramePacket | DataFramePacket | TransferEndPacket;
 
 /**
  * Fast IEEE 802.3 CRC32 implementation
@@ -128,8 +152,8 @@ export function getFileExtension(filename: string): string {
 export function createPairingPacket(
   transferId: string,
   deviceName: string = 'Luma Sender',
-  gridMode: string = '3x3',
-  moduleCount: number = 9
+  gridMode: string = '1x1',
+  moduleCount: number = MODULES_PER_BATCH
 ): DevicePairPacket {
   return {
     type: 'DEVICE_PAIR',
@@ -143,16 +167,17 @@ export function createPairingPacket(
 }
 
 /**
- * Create structured Phase 2 transmission packets:
+ * Create structured transmission packets:
  * 1. TRANSFER_START
- * 2. DATA_FRAME (0 to N-1)
+ * 2. BATCH_FRAME (1 to B, bundling up to 16 chunk modules inside each 1x1 QR)
  * 3. TRANSFER_END
  */
 export function createTransferPackets(
   fileBuffer: Uint8Array,
   fileName: string,
   fileMime: string = 'application/octet-stream',
-  chunkSize: number = DEFAULT_CHUNK_SIZE
+  chunkSize: number = DEFAULT_CHUNK_SIZE,
+  modulesPerBatch: number = MODULES_PER_BATCH
 ): ProtocolPacket[] {
   const totalBytes = fileBuffer.byteLength;
   const totalChunks = Math.max(1, Math.ceil(totalBytes / chunkSize));
@@ -178,28 +203,41 @@ export function createTransferPackets(
   };
   packets.push(startPacket);
 
-  // Frames 1..N: DATA_FRAME
-  for (let i = 0; i < totalChunks; i++) {
-    const start = i * chunkSize;
-    const end = Math.min(start + chunkSize, totalBytes);
-    const chunkBytes = fileBuffer.slice(start, end);
-    const chunkCrc = crc32(chunkBytes);
-    const chunkBase64 = bytesToBase64(chunkBytes);
+  // Group chunk modules into batches of up to modulesPerBatch (16 modules per 1x1 QR)
+  const totalBatches = Math.ceil(totalChunks / modulesPerBatch);
 
-    const dataPacket: DataFramePacket = {
-      type: 'DATA_FRAME',
+  for (let b = 0; b < totalBatches; b++) {
+    const batchModules: BatchModule[] = [];
+    const startSeq = b * modulesPerBatch;
+    const endSeq = Math.min(startSeq + modulesPerBatch, totalChunks);
+
+    for (let i = startSeq; i < endSeq; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, totalBytes);
+      const chunkBytes = fileBuffer.slice(start, end);
+      const chunkCrc = crc32(chunkBytes);
+      const chunkBase64 = bytesToBase64(chunkBytes);
+
+      batchModules.push({
+        seq: i,
+        payload: chunkBase64,
+        crc: chunkCrc
+      });
+    }
+
+    const batchPacket: BatchFramePacket = {
+      type: 'BATCH_FRAME',
       protocol_version: PROTOCOL_VERSION,
       transfer_id: transferId,
-      chunk_id: `${transferId}_c${i}`,
-      seq: i,
+      batch_index: b,
+      total_batches: totalBatches,
       total_chunks: totalChunks,
-      payload: chunkBase64,
-      crc: chunkCrc
+      modules: batchModules
     };
-    packets.push(dataPacket);
+    packets.push(batchPacket);
   }
 
-  // Frame N+1: TRANSFER_END
+  // Frame B+1: TRANSFER_END
   const endPacket: TransferEndPacket = {
     type: 'TRANSFER_END',
     protocol_version: PROTOCOL_VERSION,
@@ -249,8 +287,8 @@ export function parsePacket(rawString: string): ProtocolPacket | null {
           protocol_version: obj.protocol_version || PROTOCOL_VERSION,
           transfer_id: obj.transfer_id,
           device_name: obj.device_name || 'Luma Sender',
-          grid_mode: obj.grid_mode || '3x3',
-          module_count: obj.module_count || 9,
+          grid_mode: obj.grid_mode || '1x1',
+          module_count: obj.module_count || MODULES_PER_BATCH,
           timestamp: obj.timestamp || Date.now()
         } as DevicePairPacket;
       }
@@ -263,6 +301,32 @@ export function parsePacket(rawString: string): ProtocolPacket | null {
         typeof obj.file_checksum === 'number'
       ) {
         return obj as TransferStartPacket;
+      }
+    } else if (obj.type === 'BATCH_FRAME') {
+      if (
+        typeof obj.transfer_id === 'string' &&
+        typeof obj.batch_index === 'number' &&
+        typeof obj.total_batches === 'number' &&
+        typeof obj.total_chunks === 'number' &&
+        Array.isArray(obj.modules)
+      ) {
+        // Validate each module's CRC
+        const validModules: BatchModule[] = [];
+        for (const m of obj.modules) {
+          if (typeof m.seq === 'number' && typeof m.payload === 'string' && typeof m.crc === 'number') {
+            const chunkBytes = base64ToBytes(m.payload);
+            const computedCrc = crc32(chunkBytes);
+            if (computedCrc === m.crc) {
+              validModules.push(m);
+            } else {
+              console.warn(`[Protocol] Module CRC mismatch for seq ${m.seq}: expected ${m.crc}, got ${computedCrc}`);
+            }
+          }
+        }
+        return {
+          ...obj,
+          modules: validModules
+        } as BatchFramePacket;
       }
     } else if (obj.type === 'DATA_FRAME') {
       if (
@@ -398,6 +462,18 @@ export class TransferAssembler {
         this.expectedTotalChunks = packet.total_chunks;
         this.expectedFileSize = packet.file_size;
         isNew = true;
+      }
+    } else if (packet.type === 'BATCH_FRAME') {
+      if (this.expectedTotalChunks === 0 && packet.total_chunks > 0) {
+        this.expectedTotalChunks = packet.total_chunks;
+      }
+
+      for (const mod of packet.modules) {
+        if (!this.receivedChunks.has(mod.seq)) {
+          const chunkBytes = base64ToBytes(mod.payload);
+          this.receivedChunks.set(mod.seq, chunkBytes);
+          isNew = true;
+        }
       }
     } else if (packet.type === 'DATA_FRAME') {
       if (this.expectedTotalChunks === 0 && packet.total_chunks > 0) {

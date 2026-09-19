@@ -1136,64 +1136,50 @@ input[type="range"] {
   border-radius: 3px;
 }
 
-/* Optical Mode Selector Tabs */
-.setting-title-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.mode-selector-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.mode-tab {
+/* 1x1 Single QR Mode Banner */
+.mode-single-badge-box {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
   display: flex;
   flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mode-single-header {
+  display: flex;
   align-items: center;
-  padding: 8px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  text-align: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
-.mode-tab:hover {
-  background: var(--bg-card-hover);
-  color: var(--text-primary);
-  border-color: rgba(56, 189, 248, 0.4);
-}
-
-.mode-tab.active {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: var(--accent-cyan);
+.mode-single-badge {
+  font-size: 0.85rem;
+  font-weight: 700;
   color: #ffffff;
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
 }
 
-.mode-title {
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.mode-badge {
-  font-size: 0.68rem;
-  color: var(--accent-cyan);
+.mode-single-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
   font-family: var(--font-mono);
-  margin-top: 2px;
+  color: #04101e;
+  background: var(--accent-cyan);
+  padding: 2px 7px;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
 }
 
-.mode-hint {
+.mode-single-desc {
   font-size: 0.76rem;
-  color: var(--text-muted);
-  margin-top: 6px;
+  color: var(--text-secondary);
   line-height: 1.35;
+  margin: 0;
+}
+
+.mode-single-desc strong {
+  color: var(--accent-cyan);
 }
 
 /* Frame Bar Header */

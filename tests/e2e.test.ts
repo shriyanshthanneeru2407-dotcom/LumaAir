@@ -16,8 +16,10 @@ describe('Phase 2 End-to-End Structured Optical Transfer Simulation', () => {
     const mimeType = 'application/octet-stream';
 
     // 1. Sender creates structured packets
-    const packets = createTransferPackets(originalBuffer, fileName, mimeType, 180);
+    const packets = createTransferPackets(originalBuffer, fileName, mimeType, 60, 16);
     expect(packets[0].type).toBe('TRANSFER_START');
+    expect(packets[1].type).toBe('BATCH_FRAME');
+    expect((packets[1] as any).modules.length).toBeGreaterThan(1);
     expect(packets[packets.length - 1].type).toBe('TRANSFER_END');
 
     const assembler = new TransferAssembler();

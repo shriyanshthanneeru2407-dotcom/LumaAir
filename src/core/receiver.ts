@@ -316,7 +316,8 @@ export class OpticalReceiver {
     const packet = parsePacket(rawData);
     if (!packet) return false;
 
-    const frameKey = `${packet.transfer_id}_${packet.type}_${(packet as any).seq ?? 0}`;
+    const batchIdx = (packet as any).batch_index ?? (packet as any).seq ?? 0;
+    const frameKey = `${packet.transfer_id}_${packet.type}_${batchIdx}`;
     const isConsecutiveDuplicate = this.lastScannedKey === frameKey;
     this.lastScannedKey = frameKey;
 
@@ -328,6 +329,12 @@ export class OpticalReceiver {
       }
       this.notifyProgress(packet);
       return false;
+    }
+
+    if (packet.type === 'BATCH_FRAME') {
+      if (this.callbacks.onBatchScanned && (result.isNew || !isConsecutiveDuplicate)) {
+        this.callbacks.onBatchScanned(packet.modules.length, 1);
+      }
     }
 
     if (packet.type === 'DEVICE_PAIR') {

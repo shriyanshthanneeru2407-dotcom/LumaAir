@@ -132,64 +132,30 @@
 
               <!-- Transmission Settings -->
               <div class="settings-group">
-                <!-- Optical Layout Mode Selector -->
+                <!-- 1x1 Single QR Mode with 16 Modules inside -->
                 <div class="setting-item">
                   <label class="setting-title-label">Optical Transmission Mode:</label>
-                  <div class="mode-selector-tabs" id="grid-mode-selector">
-                    <button type="button" class="mode-tab active" data-mode="3x3">
-                      <span class="mode-title">3×3 Big Square</span>
-                      <span class="mode-badge">9 QRs • Sweet Spot</span>
-                    </button>
-                    <button type="button" class="mode-tab" data-mode="4x4">
-                      <span class="mode-title">4×4 Big Square</span>
-                      <span class="mode-badge">16 QRs • Max Speed</span>
-                    </button>
-                    <button type="button" class="mode-tab" data-mode="2x2">
-                      <span class="mode-title">2×2 Grid</span>
-                      <span class="mode-badge">4 QRs</span>
-                    </button>
-                    <button type="button" class="mode-tab" data-mode="custom">
-                      <span class="mode-title">Custom Modules</span>
-                      <span class="mode-badge">Choose No.</span>
-                    </button>
-                    <button type="button" class="mode-tab" data-mode="1x1">
-                      <span class="mode-title">1×1 Single QR</span>
-                      <span class="mode-badge">Flashing</span>
-                    </button>
-                  </div>
-                  <p class="mode-hint" id="mode-hint-text">
-                    ⭐ 3×3 Big Square (9 QRs): The recommended sweet spot for smartphone cameras. Scans 9 codes in 1 frame without misses.
-                  </p>
-                  <!-- Custom Module Count Selector -->
-                  <div id="custom-modules-container" class="custom-modules-control hidden">
-                    <div class="custom-modules-header">
-                      <label for="custom-modules-slider" class="custom-modules-label">
-                        <span>Modules per Frame:</span>
-                        <span id="custom-modules-val" class="font-mono text-cyan">9 modules</span>
-                      </label>
+                  <div class="mode-single-badge-box">
+                    <div class="mode-single-header">
+                      <span class="mode-single-badge">1×1 Single QR Code</span>
+                      <span class="mode-single-pill">16 Modules in 1 QR</span>
                     </div>
-                    <input type="range" id="custom-modules-slider" min="1" max="25" value="9" step="1" />
-                    <div class="slider-ticks">
-                      <span>4 (2x2)</span>
-                      <span>9 (3x3 Optimal)</span>
-                      <span>16 (4x4)</span>
-                      <span>20 (Test)</span>
-                      <span>25 (5x5)</span>
-                    </div>
-                    <p class="custom-modules-note">Notice: 20 modules forms a non-square 5×4 grid. 9 (3×3) and 16 (4×4) form perfect squares ideal for camera focus.</p>
+                    <p class="mode-single-desc">
+                      Every single QR code bundles <strong>16 data modules</strong> inside it. One camera scan captures and loads all 16 modules simultaneously!
+                    </p>
                   </div>
                 </div>
 
                 <div class="setting-item" id="timing-setting-item">
-                  <label for="sender-timing-slider">
-                    <span id="timing-label-text">Page Hold Duration:</span>
-                    <span id="fps-label" class="setting-val">1.5s / page</span>
+                  <label for="sender-fps-slider">
+                    <span id="timing-label-text">Streaming Speed:</span>
+                    <span id="fps-label" class="setting-val">3 FPS</span>
                   </label>
-                  <input type="range" id="sender-fps-slider" min="5" max="35" value="15" step="1" />
+                  <input type="range" id="sender-fps-slider" min="1" max="10" value="3" step="1" />
                   <div class="slider-ticks" id="timing-slider-ticks">
-                    <span>0.5s (Fast)</span>
-                    <span>1.5s (Optimal)</span>
-                    <span>3.5s (Steady)</span>
+                    <span>1 FPS (Steady)</span>
+                    <span>3 FPS (Optimal)</span>
+                    <span>10 FPS (High Speed)</span>
                   </div>
                 </div>
 
@@ -271,15 +237,14 @@
                     <span>Exit Full Screen</span>
                   </button>
 
-                  <div id="qr-grid-container" class="qr-grid-matrix grid-4x4"></div>
-                  <canvas id="sender-canvas" width="380" height="380" class="hidden"></canvas>
+                  <canvas id="sender-canvas" width="400" height="400"></canvas>
                   <div id="sender-placeholder" class="qr-placeholder">
                     <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
                       <rect width="18" height="18" x="3" y="3" rx="2"/>
                       <path d="M8 8h8v8H8z"/>
                     </svg>
-                    <p>Select a file to generate 16-QR matrix</p>
-                    <span class="placeholder-sub">Mobile camera scans all 16 QR codes at once!</span>
+                    <p>Select a file to generate 1×1 QR code</p>
+                    <span class="placeholder-sub">1 QR holds 16 modules — 1 scan captures all 16 at once!</span>
                   </div>
 
                   <!-- Floating navigation bar in fullscreen with all 5 controls -->
@@ -312,19 +277,19 @@
 
                     <div class="fs-divider"></div>
 
-                    <span id="fs-page-indicator" class="fs-page-badge font-mono text-cyan">Page 0 / 0</span>
+                    <span id="fs-page-indicator" class="fs-page-badge font-mono text-cyan">Frame 0 / 0</span>
                   </div>
                 </div>
 
                 <!-- Live Frame Telemetry -->
                 <div class="telemetry-bar">
                   <div class="telemetry-item">
-                    <span class="telemetry-label">Frame/Page:</span>
+                    <span class="telemetry-label">Frame / Batch:</span>
                     <span id="sender-frame-indicator" class="telemetry-val font-mono">0 / 0</span>
                   </div>
                   <div class="telemetry-item">
-                    <span class="telemetry-label">Slots:</span>
-                    <span id="sender-slots-indicator" class="telemetry-val font-mono">-</span>
+                    <span class="telemetry-label">Modules:</span>
+                    <span id="sender-slots-indicator" class="telemetry-val font-mono">16 per QR</span>
                   </div>
                   <div class="telemetry-item">
                     <span class="telemetry-label">Cycles:</span>
@@ -337,7 +302,7 @@
                 </div>
 
                 <p class="scan-instruction" id="scan-instruction-text">
-                  Point the receiving phone's camera at the 16-QR matrix. Modern cameras capture all 16 codes in a single frame. Extra boxes stay empty.
+                  Point the receiving phone camera at the 1×1 QR code. One scan captures all 16 modules at once.
                 </p>
               </div>
             </div>
@@ -383,8 +348,8 @@
                     <div class="reticle-corner br"></div>
                     <div class="reticle-scanner"></div>
                   </div>
-                  <div id="rec-batch-badge" class="batch-capture-badge hidden">⚡ +16 Chunks Scanned at Once!</div>
-                  <p class="reticle-prompt" id="reticle-prompt-text">Align QR matrix or code inside viewfinder</p>
+                  <div id="rec-batch-badge" class="batch-capture-badge hidden">⚡ +16 Modules Loaded from 1 QR Code!</div>
+                  <p class="reticle-prompt" id="reticle-prompt-text">Align 1×1 QR code inside viewfinder</p>
                 </div>
                 <div id="camera-placeholder" class="camera-placeholder">
                   <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -421,8 +386,8 @@
                   <span id="rec-protocol-status" class="info-value font-mono text-muted">Awaiting Header</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">Multi-QR Ingestion:</span>
-                  <span id="rec-multi-ingestion" class="info-value font-mono text-cyan">Multi-Frame Scanner Ready</span>
+                  <span class="info-label">Optical Stream:</span>
+                  <span id="rec-multi-ingestion" class="info-value font-mono text-cyan">Single QR Scanner Ready</span>
                 </div>
                 <div class="file-info-row">
                   <span class="info-label">File:</span>
