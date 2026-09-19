@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Luma — Cross-Device Optical File Transfer</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='5' height='5' x='3' y='3' rx='1'/><rect width='5' height='5' x='16' y='3' rx='1'/><rect width='5' height='5' x='3' y='16' rx='1'/><path d='M21 16h-3a2 2 0 0 0-2 2v3'/><path d='M21 21v.01'/><path d='M12 7v3a2 2 0 0 1-2 2H7'/><path d='M3 12h.01'/><path d='M12 3h.01'/><path d='M12 16v.01'/><path d='M16 12h1'/><path d='M21 12v.01'/><path d='M12 21v-1'/></svg>" />
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-container">
+      <!-- App Header -->
+      <header class="app-header">
+        <div class="logo-area">
+          <div class="logo-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="5" height="5" x="3" y="3" rx="1"/>
+              <rect width="5" height="5" x="16" y="3" rx="1"/>
+              <rect width="5" height="5" x="3" y="16" rx="1"/>
+              <path d="M21 16h-3a2 2 0 0 0-2 2v3"/>
+              <path d="M21 21v.01"/>
+              <path d="M12 7v3a2 2 0 0 1-2 2H7"/>
+              <path d="M3 12h.01"/>
+              <path d="M12 3h.01"/>
+              <path d="M12 16v.01"/>
+              <path d="M16 12h1"/>
+              <path d="M21 12v.01"/>
+              <path d="M12 21v-1"/>
+            </svg>
+          </div>
+          <div>
+            <h1 class="logo-title">Luma <span class="badge-phase">Optical Transfer</span></h1>
+            <p class="logo-subtitle">Cross-device air-gapped optical file transfer via animated QR frames</p>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs" role="tablist">
+          <button class="nav-tab active" id="tab-sender" data-tab="sender-view" role="tab" aria-selected="true">
+            <span class="tab-icon">📤</span> Sender Mode
+          </button>
+          <button class="nav-tab" id="tab-receiver" data-tab="receiver-view" role="tab" aria-selected="false">
+            <span class="tab-icon">📷</span> Receiver Mode
+          </button>
+          <button class="nav-tab" id="tab-sandbox" data-tab="sandbox-view" role="tab" aria-selected="false">
+            <span class="tab-icon">⚡</span> Self-Test Sandbox
+          </button>
+        </nav>
+      </header>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- ================= SENDER VIEW ================= -->
+        <section id="sender-view" class="view-panel active">
+          <div class="panel-grid">
+            <!-- Left: File Upload & Controls -->
+            <div class="card sender-controls-card">
+              <h2 class="card-title">1. Select File to Transmit</h2>
+              
+              <label class="dropzone" id="file-dropzone" for="file-input">
+                <input type="file" id="file-input" class="file-input-hidden" />
+                <div class="dropzone-content">
+                  <svg class="dropzone-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  <p class="dropzone-text"><strong>Click to browse</strong> or drag & drop a file</p>
+                  <span class="dropzone-hint">Supports any file: text, image, doc, pdf, zip</span>
+                  <div class="dropzone-action">
+                    <span class="btn btn-sm btn-primary">Browse File on Computer</span>
+                  </div>
+                </div>
+              </label>
+
+              <!-- Quick Test Files -->
+              <div class="quick-samples-bar">
+                <span class="quick-samples-label">Or try a test file:</span>
+                <div class="sample-file-buttons">
+                  <button type="button" id="btn-sender-sample-txt" class="btn btn-xs btn-secondary">Sample Text (1.2 KB)</button>
+                  <button type="button" id="btn-sender-sample-img" class="btn btn-xs btn-secondary">Sample Image (3.5 KB)</button>
+                </div>
+              </div>
+
+              <!-- Status / Error Notification banner -->
+              <div id="sender-alert" class="alert-box hidden"></div>
+
+              <!-- File Info Display -->
+              <div id="sender-file-info" class="file-info-box hidden">
+                <div class="file-info-row">
+                  <span class="info-label">File:</span>
+                  <span id="sender-file-name" class="info-value font-mono">-</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Size:</span>
+                  <span id="sender-file-size" class="info-value font-mono">-</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Chunks / Frames:</span>
+                  <span id="sender-frame-count" class="info-value font-mono">-</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Est. Cycle Time:</span>
+                  <span id="sender-cycle-time" class="info-value font-mono">-</span>
+                </div>
+              </div>
+
+              <!-- Transmission Settings -->
+              <div class="settings-group">
+                <div class="setting-item">
+                  <label for="sender-fps-slider">
+                    Transmission Speed: <span id="fps-label" class="setting-val">4 FPS</span>
+                  </label>
+                  <input type="range" id="sender-fps-slider" min="1" max="10" value="4" step="1" />
+                  <div class="slider-ticks">
+                    <span>1 (Slow/Stable)</span>
+                    <span>4 (Balanced)</span>
+                    <span>10 (Fast)</span>
+                  </div>
+                </div>
+
+                <div class="setting-item">
+                  <label for="chunk-size-select">Chunk Density:</label>
+                  <select id="chunk-size-select" class="form-select">
+                    <option value="150">Low (150 bytes) — Best for blurry/low-res cameras</option>
+                    <option value="220" selected>Standard (220 bytes) — Recommended default</option>
+                    <option value="320">High (320 bytes) — Faster for sharp HD cameras</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Playback Controls -->
+              <div class="playback-controls">
+                <button id="btn-sender-start" class="btn btn-primary" disabled>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Start Loop
+                </button>
+                <button id="btn-sender-pause" class="btn btn-secondary" disabled>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                  Pause
+                </button>
+                <button id="btn-sender-stop" class="btn btn-danger" disabled>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+                  Stop
+                </button>
+              </div>
+
+              <!-- Step Controls -->
+              <div class="step-controls">
+                <button id="btn-sender-prev" class="btn btn-sm btn-ghost" disabled title="Previous frame">⏮ Prev Frame</button>
+                <button id="btn-sender-next" class="btn btn-sm btn-ghost" disabled title="Next frame">Next Frame ⏭</button>
+              </div>
+            </div>
+
+            <!-- Right: Animated QR Frame Display -->
+            <div class="card sender-display-card">
+              <div class="display-header">
+                <h2 class="card-title">2. Optical Display Screen</h2>
+                <div class="status-indicator">
+                  <span id="sender-status-dot" class="status-dot dot-idle"></span>
+                  <span id="sender-status-text" class="status-text">Ready</span>
+                </div>
+              </div>
+
+              <div class="qr-stage">
+                <div class="qr-frame-wrapper" id="qr-wrapper">
+                  <canvas id="sender-canvas" width="380" height="380"></canvas>
+                  <div id="sender-placeholder" class="qr-placeholder">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                      <rect width="18" height="18" x="3" y="3" rx="2"/>
+                      <path d="M8 8h8v8H8z"/>
+                    </svg>
+                    <p>Select a file to generate QR sequence</p>
+                  </div>
+                </div>
+
+                <!-- Live Frame Telemetry -->
+                <div class="telemetry-bar">
+                  <div class="telemetry-item">
+                    <span class="telemetry-label">Frame:</span>
+                    <span id="sender-frame-indicator" class="telemetry-val font-mono">0 / 0</span>
+                  </div>
+                  <div class="telemetry-item">
+                    <span class="telemetry-label">Progress:</span>
+                    <span id="sender-frame-pct" class="telemetry-val font-mono">0%</span>
+                  </div>
+                  <div class="telemetry-item">
+                    <span class="telemetry-label">Cycles:</span>
+                    <span id="sender-loop-counter" class="telemetry-val font-mono">0</span>
+                  </div>
+                </div>
+
+                <div class="progress-track">
+                  <div id="sender-progress-fill" class="progress-fill" style="width: 0%"></div>
+                </div>
+
+                <p class="scan-instruction">
+                  Point the receiving device's camera at this screen. The transmission cycles continuously until all frames are captured.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= RECEIVER VIEW ================= -->
+        <section id="receiver-view" class="view-panel">
+          <div class="panel-grid">
+            <!-- Left: Camera Viewfinder -->
+            <div class="card receiver-camera-card">
+              <div class="display-header">
+                <h2 class="card-title">1. Camera Viewfinder</h2>
+                <div class="status-indicator">
+                  <span id="receiver-status-dot" class="status-dot dot-idle"></span>
+                  <span id="receiver-status-text" class="status-text">Camera Off</span>
+                </div>
+              </div>
+
+              <!-- Camera Controls -->
+              <div class="camera-toolbar">
+                <button id="btn-camera-toggle" class="btn btn-primary">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  <span id="camera-btn-text">Start Camera</span>
+                </button>
+                <button id="btn-camera-flip" class="btn btn-secondary" disabled title="Switch front/rear camera">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8v3"/><polyline points="7 10 4 13 1 10"/><path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8v-3"/><polyline points="17 14 20 11 23 14"/></svg>
+                  Flip Camera
+                </button>
+                <select id="camera-select" class="form-select camera-select" disabled>
+                  <option value="">Default Camera</option>
+                </select>
+              </div>
+
+              <!-- Video Stream Container -->
+              <div class="viewfinder-container">
+                <video id="receiver-video" playsinline muted autoplay></video>
+                <div class="viewfinder-overlay" id="viewfinder-overlay">
+                  <div class="reticle">
+                    <div class="reticle-corner tl"></div>
+                    <div class="reticle-corner tr"></div>
+                    <div class="reticle-corner bl"></div>
+                    <div class="reticle-corner br"></div>
+                    <div class="reticle-scanner"></div>
+                  </div>
+                  <p class="reticle-prompt">Align QR code inside box</p>
+                </div>
+                <div id="camera-placeholder" class="camera-placeholder">
+                  <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                  <p>Click "Start Camera" to begin scanning sender frames</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Reconstruction & Reception Dashboard -->
+            <div class="card receiver-dashboard-card">
+              <div class="display-header">
+                <h2 class="card-title">2. Incoming Transfer Progress</h2>
+                <button id="btn-receiver-reset" class="btn btn-sm btn-ghost" title="Reset receiver state">Reset</button>
+              </div>
+
+              <!-- Live File Reception Stats -->
+              <div id="receiver-file-stats" class="file-info-box">
+                <div class="file-info-row">
+                  <span class="info-label">File:</span>
+                  <span id="rec-file-name" class="info-value font-mono">Waiting for sender...</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Size:</span>
+                  <span id="rec-file-size" class="info-value font-mono">-</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Chunks Received:</span>
+                  <span id="rec-chunk-count" class="info-value font-mono">0 / 0 (0%)</span>
+                </div>
+                <div class="file-info-row">
+                  <span class="info-label">Missing Frames:</span>
+                  <span id="rec-missing-chunks" class="info-value font-mono text-warning">None</span>
+                </div>
+              </div>
+
+              <!-- Progress bar -->
+              <div class="progress-track" style="height: 10px;">
+                <div id="rec-progress-fill" class="progress-fill" style="width: 0%"></div>
+              </div>
+
+              <!-- Visual Bit-Torrent style Chunk Matrix -->
+              <div class="chunk-matrix-container">
+                <div class="matrix-header">
+                  <span class="matrix-title">Frame Map</span>
+                  <span id="matrix-status" class="matrix-caption">Waiting for stream</span>
+                </div>
+                <div id="chunk-grid" class="chunk-grid">
+                  <!-- Generated dynamically -->
+                </div>
+              </div>
+
+              <!-- Reconstructed File Card (Appears upon completion) -->
+              <div id="reconstructed-card" class="reconstructed-card hidden">
+                <div class="success-banner">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  <div>
+                    <h3 class="success-title">File Successfully Reconstructed!</h3>
+                    <p class="success-subtitle">CRC32 integrity verified. All frames received.</p>
+                  </div>
+                </div>
+
+                <!-- Preview Area if text or image -->
+                <div id="file-preview-area" class="file-preview-box hidden"></div>
+
+                <div class="action-row">
+                  <button id="btn-download-file" class="btn btn-success btn-lg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download File (<span id="download-size-badge"></span>)
+                  </button>
+                  <button id="btn-receive-another" class="btn btn-secondary">Receive Another File</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= SELF-TEST SANDBOX VIEW ================= -->
+        <section id="sandbox-view" class="view-panel">
+          <div class="sandbox-banner">
+            <div class="sandbox-badge">Instant Verification</div>
+            <h3>Loopback Verification Sandbox</h3>
+            <p>Test the full optical chunking, QR encoding, live detection, and file reconstruction pipeline on a single device without a physical camera!</p>
+          </div>
+
+          <div class="sandbox-split">
+            <!-- Sandbox Sender -->
+            <div class="card sandbox-col">
+              <div class="display-header">
+                <h3 class="card-title">Virtual Sender</h3>
+                <div class="sample-file-buttons">
+                  <button id="btn-sandbox-sample-txt" class="btn btn-xs btn-secondary">Sample Text</button>
+                  <button id="btn-sandbox-sample-img" class="btn btn-xs btn-secondary">Sample Image</button>
+                </div>
+              </div>
+
+              <div class="qr-stage compact">
+                <canvas id="sandbox-sender-canvas" width="300" height="300"></canvas>
+                <div class="telemetry-bar">
+                  <span>Frame: <strong id="sandbox-frame-idx" class="font-mono">0/0</strong></span>
+                  <span>Speed: <strong id="sandbox-fps-label" class="font-mono">5 FPS</strong></span>
+                </div>
+              </div>
+
+              <div class="playback-controls">
+                <button id="btn-sandbox-play" class="btn btn-primary btn-sm">Start Direct Loopback</button>
+                <button id="btn-sandbox-pause" class="btn btn-secondary btn-sm">Pause</button>
+                <button id="btn-sandbox-stop" class="btn btn-danger btn-sm">Reset</button>
+              </div>
+            </div>
+
+            <!-- Sandbox Receiver -->
+            <div class="card sandbox-col">
+              <div class="display-header">
+                <h3 class="card-title">Virtual Receiver</h3>
+                <span id="sandbox-rec-status" class="badge-status">Idle</span>
+              </div>
+
+              <div class="sandbox-stats">
+                <div class="file-info-row">
+                  <span class="info-label">Received:</span>
+                  <span id="sandbox-rec-progress" class="info-value font-mono">0 / 0 (0%)</span>
+                </div>
+                <div class="progress-track">
+                  <div id="sandbox-progress-fill" class="progress-fill" style="width: 0%"></div>
+                </div>
+                <div id="sandbox-chunk-grid" class="chunk-grid compact"></div>
+              </div>
+
+              <div id="sandbox-success-box" class="reconstructed-card compact hidden">
+                <p class="text-success font-semibold">Transmission Complete & Verified!</p>
+                <button id="btn-sandbox-download" class="btn btn-success btn-sm">Download Reconstructed File</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Footer -->
+      <footer class="app-footer">
+        <p>Luma • Air-Gapped Optical Data Transfer Platform • Phase 1</p>
+      </footer>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
