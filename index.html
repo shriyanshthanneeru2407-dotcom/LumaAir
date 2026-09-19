@@ -243,12 +243,37 @@
                     <span class="placeholder-sub">Mobile camera scans all 16 QR codes at once!</span>
                   </div>
 
-                  <!-- Floating navigation bar in fullscreen -->
+                  <!-- Floating navigation bar in fullscreen with all 5 controls -->
                   <div id="fullscreen-controls-bar" class="fullscreen-controls-bar hidden">
-                    <button type="button" id="btn-fs-prev" class="btn btn-xs btn-ghost">⏮ Prev</button>
-                    <button type="button" id="btn-fs-play" class="btn btn-xs btn-primary">Start Loop</button>
-                    <button type="button" id="btn-fs-next" class="btn btn-xs btn-ghost">Next ⏭</button>
-                    <span id="fs-page-indicator" class="fs-page-badge font-mono text-cyan">Page 1 / 1</span>
+                    <div class="fs-controls-group">
+                      <button type="button" id="btn-fs-start" class="btn btn-sm btn-primary" title="Start Transmission" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <span>Start</span>
+                      </button>
+                      <button type="button" id="btn-fs-pause" class="btn btn-sm btn-secondary" title="Pause Transmission" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                        <span>Pause</span>
+                      </button>
+                      <button type="button" id="btn-fs-stop" class="btn btn-sm btn-danger" title="Stop Transmission" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+                        <span>Stop</span>
+                      </button>
+                    </div>
+
+                    <div class="fs-divider"></div>
+
+                    <div class="fs-controls-group">
+                      <button type="button" id="btn-fs-prev" class="btn btn-sm btn-ghost" title="Previous Page or Frame" disabled>
+                        ⏮ Prev
+                      </button>
+                      <button type="button" id="btn-fs-next" class="btn btn-sm btn-ghost" title="Next Page or Frame" disabled>
+                        Next ⏭
+                      </button>
+                    </div>
+
+                    <div class="fs-divider"></div>
+
+                    <span id="fs-page-indicator" class="fs-page-badge font-mono text-cyan">Page 0 / 0</span>
                   </div>
                 </div>
 

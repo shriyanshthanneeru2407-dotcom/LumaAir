@@ -1318,21 +1318,36 @@ input[type="range"] {
   bottom: 24px;
   align-items: center;
   gap: 12px;
-  background: rgba(17, 24, 39, 0.85);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   padding: 8px 18px;
   border-radius: 9999px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   z-index: 100000;
+  max-width: 95vw;
+}
+
+.fs-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fs-divider {
+  width: 1px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 4px;
 }
 
 .fs-page-badge {
   font-size: 0.82rem;
-  padding: 2px 10px;
+  padding: 3px 12px;
   background: rgba(56, 189, 248, 0.15);
   border-radius: 9999px;
   border: 1px solid rgba(56, 189, 248, 0.3);
+  white-space: nowrap;
 }
 
 /* Utilities */

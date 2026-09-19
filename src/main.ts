@@ -82,8 +82,10 @@ const btnFullscreenExit = document.getElementById('btn-fullscreen-exit') as HTML
 const fullscreenBtnText = document.getElementById('fullscreen-btn-text') as HTMLSpanElement | null;
 const iconExpand = btnFullscreenToggle?.querySelector('.icon-expand') as SVGElement | null;
 const iconCompress = btnFullscreenToggle?.querySelector('.icon-compress') as SVGElement | null;
+const btnFsStart = document.getElementById('btn-fs-start') as HTMLButtonElement | null;
+const btnFsPause = document.getElementById('btn-fs-pause') as HTMLButtonElement | null;
+const btnFsStop = document.getElementById('btn-fs-stop') as HTMLButtonElement | null;
 const btnFsPrev = document.getElementById('btn-fs-prev') as HTMLButtonElement | null;
-const btnFsPlay = document.getElementById('btn-fs-play') as HTMLButtonElement | null;
 const btnFsNext = document.getElementById('btn-fs-next') as HTMLButtonElement | null;
 const fsPageIndicator = document.getElementById('fs-page-indicator') as HTMLSpanElement | null;
 
@@ -101,9 +103,15 @@ const sender = new OpticalSender({
 
 function updateSenderStateUI(state: SenderState) {
   senderStatusDot.className = 'status-dot';
-  if (btnFsPlay) {
-    btnFsPlay.textContent = state === 'TRANSMITTING' ? 'Pause' : 'Start Loop';
-  }
+
+  // Sync fullscreen 5 controls with sender state
+  const syncFsButtons = (start: boolean, pause: boolean, stop: boolean, prev: boolean, next: boolean) => {
+    if (btnFsStart) btnFsStart.disabled = start;
+    if (btnFsPause) btnFsPause.disabled = pause;
+    if (btnFsStop) btnFsStop.disabled = stop;
+    if (btnFsPrev) btnFsPrev.disabled = prev;
+    if (btnFsNext) btnFsNext.disabled = next;
+  };
 
   switch (state) {
     case 'IDLE':
@@ -114,6 +122,7 @@ function updateSenderStateUI(state: SenderState) {
       btnSenderStop.disabled = true;
       btnSenderPrev.disabled = true;
       btnSenderNext.disabled = true;
+      syncFsButtons(true, true, true, true, true);
       senderPlaceholder.classList.remove('hidden');
       break;
     case 'LOADED':
@@ -124,6 +133,7 @@ function updateSenderStateUI(state: SenderState) {
       btnSenderStop.disabled = true;
       btnSenderPrev.disabled = false;
       btnSenderNext.disabled = false;
+      syncFsButtons(false, true, true, false, false);
       senderPlaceholder.classList.add('hidden');
       break;
     case 'TRANSMITTING':
@@ -134,6 +144,7 @@ function updateSenderStateUI(state: SenderState) {
       btnSenderStop.disabled = false;
       btnSenderPrev.disabled = true;
       btnSenderNext.disabled = true;
+      syncFsButtons(true, false, false, true, true);
       senderPlaceholder.classList.add('hidden');
       break;
     case 'PAUSED':
@@ -144,6 +155,7 @@ function updateSenderStateUI(state: SenderState) {
       btnSenderStop.disabled = false;
       btnSenderPrev.disabled = false;
       btnSenderNext.disabled = false;
+      syncFsButtons(false, true, false, false, false);
       senderPlaceholder.classList.add('hidden');
       break;
     case 'STOPPED':
@@ -154,6 +166,7 @@ function updateSenderStateUI(state: SenderState) {
       btnSenderStop.disabled = true;
       btnSenderPrev.disabled = false;
       btnSenderNext.disabled = false;
+      syncFsButtons(false, true, true, false, false);
       senderPlaceholder.classList.add('hidden');
       break;
   }
@@ -546,21 +559,21 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Fullscreen in-overlay navigation buttons
+// Fullscreen in-overlay 5 controls
+if (btnFsStart) {
+  btnFsStart.addEventListener('click', () => sender.start());
+}
+if (btnFsPause) {
+  btnFsPause.addEventListener('click', () => sender.pause());
+}
+if (btnFsStop) {
+  btnFsStop.addEventListener('click', () => sender.stop());
+}
 if (btnFsPrev) {
   btnFsPrev.addEventListener('click', () => sender.prevFrame());
 }
 if (btnFsNext) {
   btnFsNext.addEventListener('click', () => sender.nextFrame());
-}
-if (btnFsPlay) {
-  btnFsPlay.addEventListener('click', () => {
-    if (sender.getState() === 'TRANSMITTING') {
-      sender.pause();
-    } else {
-      sender.start();
-    }
-  });
 }
 
 // ================= RECEIVER CONTROLLER =================
