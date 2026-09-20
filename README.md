@@ -1,12 +1,16 @@
-# Luma — Cross-Device Optical File Transfer Platform
+# LumaAir — Air-Gapped Optical File Transfer Platform
 
 🌐 **Live Link**: [https://luma-air.vercel.app](https://luma-air.vercel.app)
 
-**Luma** is a high-speed, air-gapped cross-device file transfer application that streams binary files visually between screens and cameras using rapidly cycling animated QR code frames.
+**LumaAir** is a high-speed, air-gapped cross-device file transfer application that streams binary files visually between screens and cameras using rapidly cycling animated QR code frames.
 
 - 🌐 **Zero Network Required**: Transfers data without Wi-Fi, Bluetooth, local area networks, or cellular data.
-- 🔒 **Zero Cloud Storage**: No intermediary cloud server touches your file. Data moves directly via light photons from screen to camera.
-- ⚡ **100% Free & Live**: Production deployed with full HTTPS for seamless camera permissions across phones, tablets, and computers.
+- 🔒 **Zero Cloud Storage**: No intermediary cloud server touches your file. Data moves directly via visible light from screen to camera.
+- ⚡ **45 FPS Max & Default**: Hardware-accelerated frame streaming engine optimized for maximum optical reliability.
+- 📦 **Luby Transform (LT) Fountain Codes**: Self-healing packet erasure coding reconstructs files even if frames are blurred or dropped.
+- 🚀 **WASM High-Density Optical Engine**: Decodes up to 1,465 bytes per QR code in ~4 ms using ZXing-C++ compiled to WebAssembly.
+- 📐 **16:9 & 9:16 Adaptive Viewports**: Automatically adapts between widescreen desktop and vertical smartphone aspect ratios.
+- 🛡️ **Cryptographic Verification**: End-to-end SHA-256 integrity checks ensure bit-for-bit file accuracy.
 
 ---
 
@@ -15,46 +19,35 @@
 👉 **[https://luma-air.vercel.app](https://luma-air.vercel.app)**
 
 GitHub Repository:
-👉 **[https://github.com/shriyanshthanneeru2407-dotcom/luma-optical-transfer](https://github.com/shriyanshthanneeru2407-dotcom/luma-optical-transfer)**
+👉 **[https://github.com/shriyanshthanneeru2407-dotcom/LumaAir](https://github.com/shriyanshthanneeru2407-dotcom/LumaAir)**
 
 ---
 
-## Features (Phase 1 Proof of Concept)
+## Features
 
-### 📤 Sender Mode
-- **File Picker & Drag-and-Drop**: Native `<label>` file picker with window-level drag protection.
-- **Quick Sample Files**: 1-click sample text and sample image generators for instant testing.
-- **Dynamic Chunking**: Configurable payload densities (150B, 220B, 320B) with IEEE 802.3 CRC32 integrity checksums.
-- **Sequential QR Carousel**: Crisp QR rendering on high-contrast canvas with quiet margins.
-- **Transmission Controls**:
-  - `Start Loop` — Continuous cyclic frame playback ($0 \to N-1 \to 0$).
-  - `Pause` / `Stop` / `Prev Frame` / `Next Frame`.
-  - `FPS Speed Slider` — Configurable 1 to 10 FPS (default 4 FPS).
-- **Live Telemetry**: Real-time frame counter (`Frame 3 / 12`), progress bar, and loop cycle counter.
+### 📤 Sender Mode (Transmitter)
+- **Home Hub 2-Box Selector**: Decimen-style action cards for instantaneous file sending and receiving.
+- **Drag-and-Drop Dropzone**: Drag files directly onto the Send card or file dropzone.
+- **Optical Pairing Beacon**: Self-describing handshake frame links sender and receiver sessions with celebratory confetti upon connection.
+- **Fountain Coding Stream**: Cycles animated QR codes at up to 45 FPS with parity repair frames.
+- **Adjustable Payload Densities**: 600B, 1,000B, 1,465B (Decimen standard), 2,000B, and 2,953B (V40 max).
+- **Fullscreen Theater Mode**: Maximizes QR code size with floating navigation controls.
 
-### 📷 Receiver Mode
-- **Camera Viewfinder**: Live camera feed with reticle overlay and animated scanline guide.
-- **Dual Detection Engine**: Native hardware-accelerated `BarcodeDetector` with automatic `jsQR` fallback for 100% universal browser compatibility.
-- **Chunk Reassembly**:
-  - Out-of-order frame capture and deduplication.
-  - Interactive **Chunk Matrix** (visual map with green illuminated badges as chunks arrive).
-  - Missing frames indicator (e.g. `Waiting for frames: #2, #5`).
-- **File Reconstruction & Download**:
-  - Bit-for-bit file reassembly with CRC32 integrity verification.
-  - Confetti celebration burst.
-  - In-browser text & image preview.
-  - Direct `Download File` button.
-
-### ⚡ Self-Test Loopback Sandbox
-- Test and inspect the full optical pipeline on a single device without needing a second physical device or camera.
+### 📷 Receiver Mode (WASM Scanner)
+- **ZXing WebAssembly Decoder**: Pre-warmed C++ engine decoding high-density QR frames in milliseconds.
+- **Dynamic Corner Brackets Overlay**: Real-time canvas HUD tracking QR coordinates with glowing neon-green alignment brackets.
+- **In-Viewfinder HUD**: Real-time progress bar, percentage, and dynamic ETA estimation.
+- **Live Optical Telemetry**: Hardware capture FPS, decode FPS, goodput (KB/s), elapsed time, unique vs duplicate frames, and block statistics.
+- **Automatic 16:9 & 9:16 Alignment**: Native camera hardware stream matching device screen orientation.
+- **Bit-for-Bit SHA-256 Verification & Instant Download**.
 
 ---
 
 ## Local Development
 
 ```bash
-git clone https://github.com/shriyanshthanneeru2407-dotcom/luma-optical-transfer.git
-cd luma-optical-transfer
+git clone https://github.com/shriyanshthanneeru2407-dotcom/LumaAir.git
+cd LumaAir
 npm install
 npm run dev -- --host
 ```
@@ -64,3 +57,10 @@ npm run dev -- --host
 ```bash
 npm run test
 ```
+
+---
+
+## Author & Copyright
+
+- **Creator & Engineer**: Shriyansh Thanneeru
+- **Copyright**: © 2026 LumaAir. All rights reserved.
