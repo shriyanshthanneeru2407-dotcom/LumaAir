@@ -2,84 +2,85 @@ import { describe, it, expect } from 'vitest';
 import QRCode from 'qrcode';
 import jsQR from 'jsqr';
 import {
-  createTransferPackets,
-  serializePacket,
-  parsePacket,
-  TransferAssembler
+  packFile,
+  unpackFile,
+  verifyFile,
+  packFrame,
+  parseFrame,
+  LTEncoder,
+  LTDecoder,
+  fnv1a,
 } from '../src/core/protocol';
 
-describe('Phase 2 End-to-End Structured Optical Transfer Simulation', () => {
-  it('should encode START, DATA_FRAME, and END to QR images, decode with jsQR, and reassemble verified file', async () => {
-    const originalText = 'Luma Phase 2 Optical Transfer: START -> DATA -> END with CRC32 integrity! '.repeat(8);
-    const originalBuffer = new TextEncoder().encode(originalText);
-    const fileName = 'presentation.key';
-    const mimeType = 'application/octet-stream';
+describe('Decimen Optical Transfer E2E Pipeline', () => {
+  it('should encode file with Decimen fountain code into QR images, scan with jsQR, and verify SHA-256', async () => {
+    const textData = 'LumaAir + Decimen Optical Transfer Engine Benchmark! '.repeat(20);
+    const bytes = new TextEncoder().encode(textData);
 
-    // 1. Sender creates structured packets (one DATA_FRAME per QR code)
-    const packets = createTransferPackets(originalBuffer, fileName, mimeType, 200);
-    expect(packets[0].type).toBe('TRANSFER_START');
-    expect(packets[1].type).toBe('DATA_FRAME');
-    expect(packets[packets.length - 1].type).toBe('TRANSFER_END');
+    // 1. Pack file
+    const packed = await packFile('report.txt', 'text/plain', bytes);
+    const blockLen = 200;
+    const sessionId = 0x4321;
+    const encoder = new LTEncoder(packed.container, blockLen, sessionId);
+    const payloadFnv = fnv1a(packed.container);
 
-    const assembler = new TransferAssembler();
+    const decoder = new LTDecoder(encoder.k, blockLen, sessionId, packed.container.length);
 
-    // 2. Optical loop: QR render → pixel buffer → jsQR decode → assemble
-    for (let i = 0; i < packets.length; i++) {
-      const packet = packets[i];
-      const qrData = serializePacket(packet);
+    // 2. Optical loop: encode frame -> QR byte mode -> pixel buffer -> jsQR -> decode
+    for (let s = 0; s < encoder.k; s++) {
+      const block = encoder.encode(s);
+      const wireBytes = packFrame({
+        sessionId,
+        seq: s,
+        k: encoder.k,
+        blockLen,
+        totalLen: packed.container.length,
+        payloadFnv,
+        flags: 0,
+      }, block);
 
-      const qrObj = QRCode.create(qrData, { errorCorrectionLevel: 'L' });
-      const size = qrObj.modules.size;
+      // Render QR
+      const qr = QRCode.create([{ data: wireBytes, mode: 'byte' } as unknown as QRCode.QRCodeSegment], {
+        errorCorrectionLevel: 'L',
+        maskPattern: 4,
+      });
+
+      const modCount = qr.modules.size;
       const margin = 4;
-      const fullSize = size + margin * 2;
-      const scale = 4;
-      const imgWidth = fullSize * scale;
-      const imgHeight = fullSize * scale;
+      const size = modCount + 2 * margin;
+      const rgba = new Uint8ClampedArray(size * size * 4);
+      rgba.fill(255);
 
-      const rgbaBuffer = new Uint8ClampedArray(imgWidth * imgHeight * 4);
-      rgbaBuffer.fill(255);
-
-      for (let r = 0; r < size; r++) {
-        for (let c = 0; c < size; c++) {
-          if (qrObj.modules.get(r, c)) {
-            const startX = (c + margin) * scale;
-            const startY = (r + margin) * scale;
-            for (let dy = 0; dy < scale; dy++) {
-              for (let dx = 0; dx < scale; dx++) {
-                const px = ((startY + dy) * imgWidth + (startX + dx)) * 4;
-                rgbaBuffer[px] = 0;
-                rgbaBuffer[px + 1] = 0;
-                rgbaBuffer[px + 2] = 0;
-                rgbaBuffer[px + 3] = 255;
-              }
-            }
+      for (let y = 0; y < modCount; y++) {
+        for (let x = 0; x < modCount; x++) {
+          if (qr.modules.data[y * modCount + x]) {
+            const idx = ((y + margin) * size + (x + margin)) * 4;
+            rgba[idx] = 0;
+            rgba[idx + 1] = 0;
+            rgba[idx + 2] = 0;
           }
         }
       }
 
-      // Receiver decodes pixel buffer
-      const scanned = jsQR(rgbaBuffer, imgWidth, imgHeight);
-      expect(scanned).not.toBeNull();
-      expect(scanned?.data).toBeDefined();
+      // Scan with jsQR
+      const decoded = jsQR(rgba, size, size);
+      expect(decoded).not.toBeNull();
+      expect(decoded!.binaryData.length).toBe(wireBytes.length);
 
-      const decodedPacket = parsePacket(scanned!.data);
-      expect(decodedPacket).not.toBeNull();
-      expect(decodedPacket?.type).toBe(packet.type);
-      expect(decodedPacket?.transfer_id).toBe(packet.transfer_id);
-
-      const addResult = assembler.addPacket(decodedPacket!);
-      expect(addResult.accepted).toBe(true);
+      const parsed = parseFrame(Uint8Array.from(decoded!.binaryData));
+      expect(parsed).not.toBeNull();
+      decoder.addFrame(parsed!.header.seq, parsed!.block);
     }
 
-    // 3. Verify & reconstruct
-    expect(assembler.isComplete()).toBe(true);
-    const result = assembler.reconstruct();
-    expect(result).not.toBeNull();
-    expect(result?.fileName).toBe(fileName);
-    expect(result?.fileExt).toBe('key');
-    expect(result?.fileBuffer).toEqual(originalBuffer);
+    expect(decoder.isComplete).toBe(true);
+    const recoveredContainer = decoder.assemble()!;
+    expect(recoveredContainer).toEqual(packed.container);
 
-    const recoveredText = new TextDecoder().decode(result!.fileBuffer);
-    expect(recoveredText).toBe(originalText);
+    const restoredFile = await unpackFile(recoveredContainer);
+    expect(restoredFile.name).toBe('report.txt');
+    expect(restoredFile.bytes).toEqual(bytes);
+
+    const valid = await verifyFile(restoredFile);
+    expect(valid).toBe(true);
   });
 });

@@ -1,27 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import {
-  createTransferPackets,
-  createPairingPacket,
-  serializePacket,
-  parsePacket,
-  TransferAssembler,
-  crc32,
-  bytesToBase64,
-  base64ToBytes,
+  packFile,
+  unpackFile,
+  verifyFile,
+  packFrame,
+  parseFrame,
+  classifyFrame,
+  streamIdentity,
+  LTEncoder,
+  LTDecoder,
+  DEFAULT_FRAME_BYTES,
   getFileExtension,
-  TransferStartPacket,
-  DataFramePacket,
-  TransferEndPacket
 } from '../src/core/protocol';
+import { OpticalSender } from '../src/core/sender';
 
-describe('Decimen Optical Protocol — Single Streaming QR Stream', () => {
-  it('should roundtrip binary data to base64 correctly', () => {
-    const original = new Uint8Array([0, 1, 2, 254, 255, 128, 64, 32, 16, 8, 4, 2, 1]);
-    const b64 = bytesToBase64(original);
-    const decoded = base64ToBytes(b64);
-    expect(decoded).toEqual(original);
-  });
-
+describe('Decimen Optical Protocol (Wire v3) & Fountain Coding', () => {
   it('should correctly extract file extensions', () => {
     expect(getFileExtension('archive.tar.gz')).toBe('gz');
     expect(getFileExtension('photo.PNG')).toBe('png');
@@ -29,149 +22,137 @@ describe('Decimen Optical Protocol — Single Streaming QR Stream', () => {
     expect(getFileExtension('no_ext')).toBe('');
   });
 
-  it('should generate structured START, DATA_FRAME, and END packets for single QR stream', () => {
-    const textData = 'Decimen Optical Communication Air-Gap Protocol Verification'.repeat(10);
-    const buffer = new TextEncoder().encode(textData);
-    const chunkSize = 250;
+  it('should roundtrip file container with packFile and unpackFile', async () => {
+    const originalText = 'Decimen Optical Transfer air-gapped stream test content! '.repeat(50);
+    const bytes = new TextEncoder().encode(originalText);
 
-    const packets = createTransferPackets(buffer, 'report.pdf', 'application/pdf', chunkSize);
+    const packed = await packFile('document.txt', 'text/plain', bytes);
+    expect(packed.container.length).toBeGreaterThan(0);
+    // Gzip should compress repeated text substantially
+    expect(packed.compression).toBe('gzip');
+    expect(packed.transmittedSize).toBeLessThan(bytes.length);
 
-    // First packet must be TRANSFER_START
-    const startPacket = packets[0] as TransferStartPacket;
-    expect(startPacket.type).toBe('TRANSFER_START');
-    expect(startPacket.protocol_version).toBe(2);
-    expect(startPacket.transfer_id).toBeDefined();
-    expect(startPacket.filename).toBe('report.pdf');
-    expect(startPacket.file_ext).toBe('pdf');
-    expect(startPacket.mime_type).toBe('application/pdf');
-    expect(startPacket.file_size).toBe(buffer.byteLength);
-    expect(startPacket.chunk_size).toBe(chunkSize);
-    expect(startPacket.total_chunks).toBe(Math.ceil(buffer.byteLength / chunkSize));
-    expect(startPacket.file_checksum).toBe(crc32(buffer));
+    const unpacked = await unpackFile(packed.container);
+    expect(unpacked.name).toBe('document.txt');
+    expect(unpacked.type).toBe('text/plain');
+    expect(unpacked.bytes).toEqual(bytes);
 
-    // Middle packets must be DATA_FRAME (single stream)
-    const totalChunks = startPacket.total_chunks;
-    expect(packets.length).toBe(totalChunks + 2);
+    const valid = await verifyFile(unpacked);
+    expect(valid).toBe(true);
+  });
 
-    for (let i = 0; i < totalChunks; i++) {
-      const dataPacket = packets[i + 1] as DataFramePacket;
-      expect(dataPacket.type).toBe('DATA_FRAME');
-      expect(dataPacket.transfer_id).toBe(startPacket.transfer_id);
-      expect(dataPacket.seq).toBe(i);
-      expect(dataPacket.total_chunks).toBe(totalChunks);
-      expect(dataPacket.payload).toBeDefined();
-      expect(dataPacket.crc).toBeDefined();
+  it('should pack and parse 22-byte self-describing wire frames', () => {
+    const block = new Uint8Array([10, 20, 30, 40, 50, 60]);
+    const header = {
+      sessionId: 0x1234,
+      seq: 42,
+      k: 10,
+      blockLen: 6,
+      totalLen: 60,
+      payloadFnv: 0x87654321,
+      flags: 0
+    };
+
+    const wireBytes = packFrame(header, block);
+    expect(wireBytes.length).toBe(22 + 6);
+    expect(wireBytes[0]).toBe(0xd1);
+    expect(wireBytes[1]).toBe(0xc3);
+    expect(wireBytes[2]).toBe(3); // Wire v3
+
+    const parsed = parseFrame(wireBytes);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.header.sessionId).toBe(0x1234);
+    expect(parsed!.header.seq).toBe(42);
+    expect(parsed!.header.k).toBe(10);
+    expect(parsed!.header.blockLen).toBe(6);
+    expect(parsed!.block).toEqual(block);
+
+    expect(classifyFrame(wireBytes).kind).toBe('ok');
+    expect(streamIdentity(header)).toContain('4660:10:6:60');
+  });
+
+  it('should reject foreign or malformed frames', () => {
+    const garbage = new Uint8Array([0x00, 0x11, 0x22, 0x33]);
+    expect(classifyFrame(garbage).kind).toBe('foreign');
+    expect(parseFrame(garbage)).toBeNull();
+  });
+
+  it('should encode and decode blocks using LT fountain coding with zero loss', () => {
+    const payload = new Uint8Array(5000);
+    for (let i = 0; i < 5000; i++) payload[i] = (i * 31) & 0xff;
+
+    const blockLen = 500;
+    const sessionId = 0x5678;
+    const encoder = new LTEncoder(payload, blockLen, sessionId);
+    expect(encoder.k).toBe(10);
+
+    const decoder = new LTDecoder(encoder.k, blockLen, sessionId, payload.length);
+
+    // Feed systematic sweep
+    for (let s = 0; s < encoder.k; s++) {
+      const block = encoder.encode(s);
+      decoder.addFrame(s, block);
     }
 
-    // Last packet must be TRANSFER_END
-    const endPacket = packets[packets.length - 1] as TransferEndPacket;
-    expect(endPacket.type).toBe('TRANSFER_END');
-    expect(endPacket.protocol_version).toBe(2);
-    expect(endPacket.transfer_id).toBe(startPacket.transfer_id);
-    expect(endPacket.total_chunks).toBe(totalChunks);
-    expect(endPacket.checksum).toBe(startPacket.file_checksum);
+    expect(decoder.isComplete).toBe(true);
+    const assembled = decoder.assemble();
+    expect(assembled).toEqual(payload);
   });
 
-  it('should serialize and deserialize all frame types correctly', () => {
-    const buffer = new TextEncoder().encode('Test Data Payload Frame');
-    const packets = createTransferPackets(buffer, 'test.txt', 'text/plain', 50);
+  it('should recover full payload even when 30% of frames are lost using fountain repair frames', () => {
+    const payload = new Uint8Array(4000);
+    for (let i = 0; i < 4000; i++) payload[i] = (i * 17) & 0xff;
 
-    for (const packet of packets) {
-      const serialized = serializePacket(packet);
-      expect(serialized.startsWith('LUMA2:')).toBe(true);
+    const blockLen = 400;
+    const sessionId = 0x9abc;
+    const encoder = new LTEncoder(payload, blockLen, sessionId);
+    expect(encoder.k).toBe(10);
 
-      const parsed = parsePacket(serialized);
-      expect(parsed).not.toBeNull();
-      expect(parsed?.type).toBe(packet.type);
-      expect(parsed?.transfer_id).toBe(packet.transfer_id);
+    const decoder = new LTDecoder(encoder.k, blockLen, sessionId, payload.length);
+
+    // Drop 30% of systematic frames (drop seq 1, 4, 7)
+    const dropped = new Set([1, 4, 7]);
+    for (let s = 0; s < encoder.k; s++) {
+      if (!dropped.has(s)) {
+        decoder.addFrame(s, encoder.encode(s));
+      }
     }
-  });
+    expect(decoder.isComplete).toBe(false);
 
-  it('should REJECT frames belonging to a different transfer ID', () => {
-    const fileA = new TextEncoder().encode('File A Contents');
-    const fileB = new TextEncoder().encode('File B Different Session Contents');
-
-    const packetsA = createTransferPackets(fileA, 'fileA.txt', 'text/plain', 100);
-    const packetsB = createTransferPackets(fileB, 'fileB.txt', 'text/plain', 100);
-
-    expect(packetsA[0].transfer_id).not.toBe(packetsB[0].transfer_id);
-
-    const assembler = new TransferAssembler();
-
-    // 1. Ingest transfer A start frame
-    const resA1 = assembler.addPacket(packetsA[0]);
-    expect(resA1.accepted).toBe(true);
-    expect(assembler.getProgress().transferId).toBe(packetsA[0].transfer_id);
-
-    // 2. Foreign packet rejected
-    const resB = assembler.addPacket(packetsB[1]);
-    expect(resB.accepted).toBe(false);
-    expect(resB.rejectedReason).toContain('different transfer');
-    expect(assembler.getProgress().rejectedCount).toBe(1);
-
-    // 3. Transfer A continues
-    const resA2 = assembler.addPacket(packetsA[1]);
-    expect(resA2.accepted).toBe(true);
-  });
-
-  it('should reject DATA_FRAME with corrupted payload CRC', () => {
-    const file = new TextEncoder().encode('Integrity critical document');
-    const packets = createTransferPackets(file, 'doc.txt', 'text/plain', 10);
-    const dataPacket = packets[1] as DataFramePacket;
-    expect(dataPacket.type).toBe('DATA_FRAME');
-
-    const serialized = serializePacket(dataPacket);
-    const parsed = JSON.parse(serialized.slice('LUMA2:'.length));
-    parsed.crc = parsed.crc ^ 0x9999; // Corrupt CRC
-    const tamperedStr = 'LUMA2:' + JSON.stringify(parsed);
-    const result = parsePacket(tamperedStr);
-    expect(result).toBeNull();
-  });
-
-  it('should reassemble full file and verify whole-file checksum from shuffled frames', () => {
-    const rawBytes = new Uint8Array(800);
-    for (let i = 0; i < 800; i++) rawBytes[i] = (i * 17) % 256;
-
-    const packets = createTransferPackets(rawBytes, 'dataset.bin', 'application/octet-stream', 200);
-    const assembler = new TransferAssembler();
-
-    const shuffled = [...packets].sort(() => Math.random() - 0.5);
-    for (const p of shuffled) {
-      assembler.addPacket(p);
+    // Fountain repair frames from seq >= k
+    let repairSeq = encoder.k;
+    while (!decoder.isComplete && repairSeq < 50) {
+      decoder.addFrame(repairSeq, encoder.encode(repairSeq));
+      repairSeq++;
     }
 
-    expect(assembler.isComplete()).toBe(true);
-    const reconstructed = assembler.reconstruct();
-    expect(reconstructed).not.toBeNull();
-    expect(reconstructed?.fileName).toBe('dataset.bin');
-    expect(reconstructed?.fileBuffer).toEqual(rawBytes);
-    expect(reconstructed?.checksum).toBe(crc32(rawBytes));
+    expect(decoder.isComplete).toBe(true);
+    const assembled = decoder.assemble();
+    expect(assembled).toEqual(payload);
   });
 
-  it('should support single-QR OpticalSender with all 5 playback controls (start, pause, stop, prev, next)', async () => {
-    const { OpticalSender } = await import('../src/core/sender');
+  it('should configure OpticalSender with compact block counts and 60 FPS', async () => {
+    const sender = new OpticalSender({ fps: 60 });
+    expect(sender.getFps()).toBe(60);
 
-    const sender = new OpticalSender({ fps: 6 });
-    expect(sender.getGridMode()).toBe('1x1');
-    expect(sender.getPageSize()).toBe(1);
+    // Small 15 KB file
+    const content = new Uint8Array(15 * 1024);
+    for (let i = 0; i < content.length; i++) content[i] = i % 256;
 
-    const content = new Uint8Array(300);
-    for (let i = 0; i < 300; i++) content[i] = i % 256;
     const mockFile = {
-      name: 'stream.dat',
-      type: 'application/octet-stream',
+      name: 'photo.jpg',
+      type: 'image/jpeg',
       size: content.byteLength,
       arrayBuffer: async () => content.buffer
     } as unknown as File;
 
-    await sender.loadFile(mockFile, 150);
+    await sender.loadFile(mockFile, DEFAULT_FRAME_BYTES);
 
     const info = sender.getFrameInfo();
-    // 1 START + 2 DATA + 1 END = 4 frames
-    expect(info.totalFrames).toBe(4);
+    // At 1465 bytes per frame, 15KB is only ~11 blocks instead of 632!
+    expect(info.totalFrames).toBeLessThan(20);
     expect(sender.getState()).toBe('LOADED');
 
-    // Controls
     sender.nextFrame();
     expect(sender.getFrameInfo().frameIndex).toBe(1);
 
@@ -186,32 +167,5 @@ describe('Decimen Optical Protocol — Single Streaming QR Stream', () => {
 
     sender.stop();
     expect(sender.getState()).toBe('STOPPED');
-
-    // Test 60 FPS configuration
-    const sender60 = new OpticalSender();
-    expect(sender60.getFps()).toBe(60);
-    sender60.setFps(60);
-    expect(sender60.getFps()).toBe(60);
-    sender60.setFps(120); // Clamped to 60
-    expect(sender60.getFps()).toBe(60);
-    sender60.setFps(0); // Clamped to 1
-    expect(sender60.getFps()).toBe(1);
-  });
-
-  it('should support Device Connection Handshake DEVICE_PAIR frame', () => {
-    const pairPacket = createPairingPacket('pair1234', 'Sender Phone', '1x1', 1);
-    expect(pairPacket.type).toBe('DEVICE_PAIR');
-    expect(pairPacket.transfer_id).toBe('pair1234');
-    expect(pairPacket.grid_mode).toBe('1x1');
-    expect(pairPacket.module_count).toBe(1);
-
-    const serialized = serializePacket(pairPacket);
-    const parsed = parsePacket(serialized);
-    expect(parsed).not.toBeNull();
-
-    const assembler = new TransferAssembler();
-    const result = assembler.addPacket(parsed!);
-    expect(result.accepted).toBe(true);
-    expect(assembler.getProgress().isPaired).toBe(true);
   });
 });

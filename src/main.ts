@@ -1,7 +1,8 @@
 import confetti from 'canvas-confetti';
 import { OpticalSender, SenderState, FrameInfo } from './core/sender';
 import { OpticalReceiver, ReceiverState, ReconstructedFile } from './core/receiver';
-import { TransferProgress, ProtocolPacket, GridMode } from './core/protocol';
+import { FrameHeader, DEFAULT_FRAME_BYTES } from './core/protocol';
+import { ReceiverProgress } from './core/receiver';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -85,11 +86,10 @@ const btnFsNext = document.getElementById('btn-fs-next') as HTMLButtonElement | 
 const fsPageIndicator = document.getElementById('fs-page-indicator') as HTMLSpanElement | null;
 
 let currentLoadedFile: File | null = null;
-let currentGridMode: GridMode = '1x1';
 
 const sender = new OpticalSender({
   fps: 60,
-  gridMode: currentGridMode,
+  frameBytes: DEFAULT_FRAME_BYTES,
   onStateChange: updateSenderStateUI,
   onFrameChange: updateSenderFrameUI
 });
@@ -183,14 +183,15 @@ function updateSenderStateUI(state: SenderState) {
 
 function updateSenderFrameUI(info: FrameInfo) {
   if (info.totalFrames > 0) {
-    senderFrameIndicator.textContent = `${info.frameIndex + 1} / ${info.totalFrames}`;
+    const blockIndex = (info.seq % info.totalFrames) + 1;
+    senderFrameIndicator.textContent = `${blockIndex} / ${info.totalFrames}`;
     if (senderSlotsIndicator) {
       senderSlotsIndicator.textContent = `${info.fps} FPS`;
     }
-    if (senderPageBadge) senderPageBadge.textContent = `FRAME ${String(info.frameIndex + 1).padStart(3, '0')} / ${String(info.totalFrames).padStart(3, '0')}`;
-    if (fsPageIndicator) fsPageIndicator.textContent = `FRAME ${String(info.frameIndex + 1).padStart(3, '0')} / ${String(info.totalFrames).padStart(3, '0')}`;
+    if (senderPageBadge) senderPageBadge.textContent = `BLOCK ${String(blockIndex).padStart(3, '0')} / ${String(info.totalFrames).padStart(3, '0')}`;
+    if (fsPageIndicator) fsPageIndicator.textContent = `BLOCK ${String(blockIndex).padStart(3, '0')} / ${String(info.totalFrames).padStart(3, '0')}`;
 
-    const pct = Math.round(((info.frameIndex + 1) / info.totalFrames) * 100);
+    const pct = Math.round((blockIndex / info.totalFrames) * 100);
     if (senderFramePct) senderFramePct.textContent = `${pct}%`;
     if (senderPctIndicator) senderPctIndicator.textContent = `${pct}%`;
     senderProgressFill.style.width = `${pct}%`;
@@ -198,28 +199,18 @@ function updateSenderFrameUI(info: FrameInfo) {
 
     if (senderFrameTypeBadge) {
       senderFrameTypeBadge.className = 'badge-frame-type';
-      if (info.frameType === 'DEVICE_PAIR') {
-        senderFrameTypeBadge.classList.add('type-start');
-        senderFrameTypeBadge.textContent = `[ PAIR BEACON #${info.transferId} ]`;
-      } else if (info.frameType === 'TRANSFER_START') {
-        senderFrameTypeBadge.classList.add('type-start');
-        senderFrameTypeBadge.textContent = `[ HEADER // TRANSFER_START ]`;
-      } else if (info.frameType === 'DATA_FRAME') {
+      if (info.isRepairFrame) {
         senderFrameTypeBadge.classList.add('type-data');
-        const seq = (info.packet as any)?.seq ?? info.frameIndex;
-        senderFrameTypeBadge.textContent = `[ DATA // CHUNK ${seq + 1} ]`;
-      } else if (info.frameType === 'TRANSFER_END') {
-        senderFrameTypeBadge.classList.add('type-end');
-        senderFrameTypeBadge.textContent = `[ END // CRC32 VERIFY ]`;
+        senderFrameTypeBadge.textContent = '[ FOUNTAIN REPAIR // PARITY ]';
       } else {
-        senderFrameTypeBadge.classList.add('type-idle');
-        senderFrameTypeBadge.textContent = 'STANDBY';
+        senderFrameTypeBadge.classList.add('type-start');
+        senderFrameTypeBadge.textContent = `[ SYSTEMATIC BLOCK ${blockIndex} / ${info.totalFrames} ]`;
       }
     }
   } else {
     senderFrameIndicator.textContent = '0 / 0';
     if (senderSlotsIndicator) senderSlotsIndicator.textContent = `${info.fps} FPS`;
-    if (senderPageBadge) senderPageBadge.textContent = 'FRAME 000 / 000';
+    if (senderPageBadge) senderPageBadge.textContent = 'BLOCK 000 / 000';
     if (senderFramePct) senderFramePct.textContent = '0%';
     if (senderPctIndicator) senderPctIndicator.textContent = '0%';
     senderProgressFill.style.width = '0%';
@@ -259,18 +250,16 @@ async function handleFileSelected(file: File) {
     const ext = file.name.split('.').pop()?.toUpperCase() || 'BIN';
     if (senderFileExt) senderFileExt.textContent = ext;
 
-    if (file.size > 2 * 1024 * 1024) {
-      showSenderAlert(`Notice: Large file (${formatBytes(file.size)}). Optical transfer is optimized for fast files (< 2MB).`, 'warning');
-    }
-
-    const chunkSize = parseInt(chunkSizeSelect.value, 10) || 250;
-    await sender.loadFile(file, chunkSize);
+    const frameBytes = parseInt(chunkSizeSelect.value, 10) || DEFAULT_FRAME_BYTES;
+    await sender.loadFile(file, frameBytes);
 
     const info = sender.getFrameInfo();
-    senderFrameCount.textContent = `${info.totalFrames} FRAMES`;
-    if (senderTransferId) senderTransferId.textContent = `#${info.transferId}`;
+    senderFrameCount.textContent = `${info.totalFrames} BLOCKS`;
+    if (senderTransferId) senderTransferId.textContent = `#${info.sessionId.toString(16).toUpperCase().padStart(4, '0')}`;
     if (senderTotalFramesDesc) {
-      senderTotalFramesDesc.textContent = `[1 START + ${Math.max(1, info.totalFrames - 2)} DATA + 1 END]`;
+      senderTotalFramesDesc.textContent = info.compression === 'gzip'
+        ? `[GZIP: ${formatBytes(info.transmittedSize)} (${Math.round((1 - info.transmittedSize / file.size) * 100)}% saved) • ${info.totalFrames} BLOCKS]`
+        : `[RAW: ${formatBytes(info.transmittedSize)} • ${info.totalFrames} BLOCKS @ ${info.frameBytes}B/QR]`;
     }
 
     const estSeconds = (info.totalFrames / sender.getFps()).toFixed(1);
@@ -509,8 +498,6 @@ const btnCameraFlip = document.getElementById('btn-camera-flip') as HTMLButtonEl
 const cameraSelect = document.getElementById('camera-select') as HTMLSelectElement;
 const cameraPlaceholder = document.getElementById('camera-placeholder') as HTMLDivElement;
 const viewfinderOverlay = document.getElementById('viewfinder-overlay') as HTMLDivElement;
-const recBatchBadge = document.getElementById('rec-batch-badge') as HTMLDivElement | null;
-const recMultiIngestion = document.getElementById('rec-multi-ingestion') as HTMLSpanElement | null;
 const recPairingStatus = document.getElementById('rec-pairing-status') as HTMLSpanElement | null;
 const recPairingText = document.getElementById('rec-pairing-text') as HTMLSpanElement | null;
 
@@ -520,7 +507,6 @@ const btnReceiverReset = document.getElementById('btn-receiver-reset') as HTMLBu
 
 const recSessionId = document.getElementById('rec-session-id') as HTMLSpanElement | null;
 const recProtocolStatus = document.getElementById('rec-protocol-status') as HTMLSpanElement | null;
-const recRejectedAlert = document.getElementById('rec-rejected-alert') as HTMLDivElement | null;
 const recFileName = document.getElementById('rec-file-name') as HTMLSpanElement;
 const recFileSize = document.getElementById('rec-file-size') as HTMLSpanElement;
 const recChunkCount = document.getElementById('rec-chunk-count') as HTMLSpanElement;
@@ -538,7 +524,6 @@ const btnReceiveAnother = document.getElementById('btn-receive-another') as HTML
 let isCameraActive = false;
 let currentFacingMode: 'environment' | 'user' = 'environment';
 let availableCameras: MediaDeviceInfo[] = [];
-let batchBadgeTimeout: number | null = null;
 
 const receiver = new OpticalReceiver({
   onStateChange: (state: ReceiverState, detail?: string) => {
@@ -558,7 +543,7 @@ const receiver = new OpticalReceiver({
         break;
       case 'RECEIVING':
         receiverStatusDot.classList.add('dot-active');
-        receiverStatusText.textContent = 'Capturing Stream';
+        receiverStatusText.textContent = 'Capturing Fountain Stream';
         break;
       case 'COMPLETE':
         receiverStatusDot.classList.add('dot-active');
@@ -570,45 +555,8 @@ const receiver = new OpticalReceiver({
         break;
     }
   },
-  onProgress: (progress: TransferProgress, latestPacket: ProtocolPacket | null) => {
-    updateReceiverDashboard(progress, latestPacket);
-  },
-  onDevicePaired: (packet) => {
-    if (recPairingStatus && recPairingText) {
-      recPairingStatus.className = 'badge-pairing-state linked';
-      recPairingText.textContent = `🔗 Connected (#${packet.transfer_id})`;
-    }
-    if (recSessionId) {
-      recSessionId.textContent = `#${packet.transfer_id} (Paired)`;
-    }
-    if (recProtocolStatus) {
-      recProtocolStatus.textContent = `Paired — ${packet.grid_mode.toUpperCase()} (${packet.module_count} Modules) Ready`;
-      recProtocolStatus.className = 'info-value font-mono text-cyan';
-    }
-    confetti({
-      particleCount: 40,
-      spread: 60,
-      origin: { y: 0.6 }
-    });
-  },
-  onFrameRejected: (_packet: ProtocolPacket, reason: string) => {
-    if (recRejectedAlert) {
-      recRejectedAlert.classList.remove('hidden');
-      recRejectedAlert.textContent = `⚠️ Frame Rejected: ${reason}`;
-    }
-  },
-  onBatchScanned: (acceptedInFrame: number, _totalFoundInFrame: number) => {
-    if (recMultiIngestion) {
-      recMultiIngestion.textContent = `⚡ +${acceptedInFrame} modules loaded from 1 QR!`;
-    }
-    if (recBatchBadge && acceptedInFrame > 0) {
-      recBatchBadge.textContent = `⚡ +${acceptedInFrame} Modules Loaded from 1 QR Code!`;
-      recBatchBadge.classList.remove('hidden');
-      if (batchBadgeTimeout !== null) clearTimeout(batchBadgeTimeout);
-      batchBadgeTimeout = window.setTimeout(() => {
-        recBatchBadge.classList.add('hidden');
-      }, 1400);
-    }
+  onProgress: (progress: ReceiverProgress, header: FrameHeader | null) => {
+    updateReceiverDashboard(progress, header);
   },
   onFileComplete: (reconstructed: ReconstructedFile) => {
     displayReconstructedFile(reconstructed);
@@ -618,69 +566,44 @@ const receiver = new OpticalReceiver({
   }
 });
 
-function updateReceiverDashboard(progress: TransferProgress, _latestPacket: ProtocolPacket | null) {
+function updateReceiverDashboard(progress: ReceiverProgress, _header: FrameHeader | null) {
   if (recPairingStatus && recPairingText) {
-    if (progress.isPaired) {
+    if (progress.sessionId) {
       recPairingStatus.className = 'badge-pairing-state linked';
-      recPairingText.textContent = `🔗 Connected (#${progress.transferId})`;
-    } else if (progress.transferId) {
-      recPairingStatus.className = 'badge-pairing-state linked';
-      recPairingText.textContent = `🔗 Locked (#${progress.transferId})`;
+      recPairingText.textContent = `🔗 Locked (#${progress.sessionId.toString(16).toUpperCase()})`;
     } else {
       recPairingStatus.className = 'badge-pairing-state unlinked';
-      recPairingText.textContent = 'Not Connected (Scan Pairing QR)';
+      recPairingText.textContent = 'Awaiting Stream';
     }
   }
 
   if (recSessionId) {
-    recSessionId.textContent = progress.transferId ? `#${progress.transferId} (Locked)` : 'Unlocked (Awaiting Stream)';
+    recSessionId.textContent = progress.sessionId ? `#${progress.sessionId.toString(16).toUpperCase()} (Locked)` : 'Awaiting Stream';
   }
 
   if (recProtocolStatus) {
-    if (progress.isComplete) {
-      recProtocolStatus.textContent = 'Verified & Complete ✓';
-      recProtocolStatus.className = 'info-value font-mono text-success';
-    } else if (progress.hasStartHeader && progress.hasEndMarker) {
-      recProtocolStatus.textContent = 'Header & End verified, catching chunks...';
-      recProtocolStatus.className = 'info-value font-mono text-cyan';
-    } else if (progress.hasStartHeader) {
-      recProtocolStatus.textContent = 'Header locked, receiving data frames...';
-      recProtocolStatus.className = 'info-value font-mono text-cyan';
-    } else {
-      recProtocolStatus.textContent = 'Capturing chunks, awaiting header...';
-      recProtocolStatus.className = 'info-value font-mono text-warning';
-    }
+    recProtocolStatus.textContent = `Fountain: ${progress.solvedCount}/${progress.k} blocks (${progress.framesNew} frames caught)`;
+    recProtocolStatus.className = 'info-value font-mono text-cyan';
   }
 
-  if (progress.rejectedCount > 0 && recRejectedAlert) {
-    recRejectedAlert.classList.remove('hidden');
-    recRejectedAlert.textContent = `⚠️ Rejected ${progress.rejectedCount} foreign frame(s) from different transfer (#${progress.lastRejectedTransferId})`;
-  }
+  if (progress.k > 0) {
+    recChunkCount.textContent = `${progress.solvedCount} / ${progress.k} (${progress.percent}%)`;
+    recProgressFill.style.width = `${progress.percent}%`;
 
-  if (progress.totalChunks > 0) {
-    recFileName.textContent = progress.fileName;
-    recFileSize.textContent = formatBytes(progress.fileSize);
-    recChunkCount.textContent = `${progress.receivedCount} / ${progress.totalChunks} (${progress.percentage}%)`;
-    recProgressFill.style.width = `${progress.percentage}%`;
-
-    if (progress.missingChunks.length > 0) {
-      if (progress.missingChunks.length <= 10) {
-        recMissingChunks.textContent = progress.missingChunks.map(i => `#${i + 1}`).join(', ');
-      } else {
-        recMissingChunks.textContent = `${progress.missingChunks.length} frames remaining`;
-      }
+    const remaining = progress.k - progress.solvedCount;
+    if (remaining > 0) {
+      recMissingChunks.textContent = `${remaining} block(s) needed`;
       recMissingChunks.className = 'info-value font-mono text-warning';
     } else {
-      recMissingChunks.textContent = 'All frames received!';
+      recMissingChunks.textContent = 'All blocks solved! Verifying SHA-256...';
       recMissingChunks.className = 'info-value font-mono text-success';
     }
 
-    matrixStatus.textContent = `${progress.receivedCount}/${progress.totalChunks} frames`;
+    matrixStatus.textContent = `${progress.solvedCount}/${progress.k} blocks`;
 
-    // Render / update chunk matrix
-    if (chunkGrid.children.length !== progress.totalChunks) {
+    if (chunkGrid.children.length !== progress.k) {
       chunkGrid.innerHTML = '';
-      for (let i = 0; i < progress.totalChunks; i++) {
+      for (let i = 0; i < progress.k; i++) {
         const cell = document.createElement('div');
         cell.className = 'chunk-cell';
         cell.id = `chunk-cell-${i}`;
@@ -689,11 +612,10 @@ function updateReceiverDashboard(progress: TransferProgress, _latestPacket: Prot
       }
     }
 
-    for (let i = 0; i < progress.totalChunks; i++) {
+    for (let i = 0; i < progress.k; i++) {
       const cell = document.getElementById(`chunk-cell-${i}`);
       if (cell) {
-        const isReceived = progress.receivedIndices.includes(i);
-        cell.classList.toggle('received', isReceived);
+        cell.classList.toggle('received', i < progress.solvedCount);
       }
     }
   } else {
@@ -849,13 +771,13 @@ const sandboxReceiver = new OpticalReceiver({
     sandboxRecStatus.textContent = state;
   },
   onProgress: (progress) => {
-    if (progress.totalChunks > 0) {
-      sandboxRecProgress.textContent = `${progress.receivedCount} / ${progress.totalChunks} (${progress.percentage}%)`;
-      sandboxProgressFill.style.width = `${progress.percentage}%`;
+    if (progress.k > 0) {
+      sandboxRecProgress.textContent = `${progress.solvedCount} / ${progress.k} (${progress.percent}%)`;
+      sandboxProgressFill.style.width = `${progress.percent}%`;
 
-      if (sandboxChunkGrid.children.length !== progress.totalChunks) {
+      if (sandboxChunkGrid.children.length !== progress.k) {
         sandboxChunkGrid.innerHTML = '';
-        for (let i = 0; i < progress.totalChunks; i++) {
+        for (let i = 0; i < progress.k; i++) {
           const cell = document.createElement('div');
           cell.className = 'chunk-cell';
           cell.id = `sb-chunk-cell-${i}`;
@@ -864,10 +786,10 @@ const sandboxReceiver = new OpticalReceiver({
         }
       }
 
-      for (let i = 0; i < progress.totalChunks; i++) {
+      for (let i = 0; i < progress.k; i++) {
         const cell = document.getElementById(`sb-chunk-cell-${i}`);
         if (cell) {
-          cell.classList.toggle('received', progress.receivedIndices.includes(i));
+          cell.classList.toggle('received', i < progress.solvedCount);
         }
       }
     }

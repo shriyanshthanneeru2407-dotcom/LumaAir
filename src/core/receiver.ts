@@ -1,11 +1,13 @@
 import jsQR from 'jsqr';
 import {
-  parsePacket,
-  TransferAssembler,
-  TransferProgress,
-  ProtocolPacket,
-  DevicePairPacket,
-  AddPacketResult
+  parseFrame,
+  streamIdentity,
+  unpackFile,
+  verifyFile,
+  fnv1a,
+  LTDecoder,
+  FrameHeader,
+  OpticalFile,
 } from './protocol';
 
 export type ReceiverState = 'IDLE' | 'STARTING' | 'SCANNING' | 'RECEIVING' | 'COMPLETE' | 'ERROR';
@@ -14,22 +16,31 @@ export interface ReconstructedFile {
   fileName: string;
   fileExt: string;
   fileSize: number;
+  transmittedSize: number;
+  compression: string;
   mimeType: string;
-  transferId: string;
-  checksum: number;
-  blob: Blob;
+  sessionId: number;
   downloadUrl: string;
   textPreview?: string;
   isImage?: boolean;
 }
 
+export interface ReceiverProgress {
+  k: number;
+  solvedCount: number;
+  framesNew: number;
+  framesDup: number;
+  framesRedundant: number;
+  percent: number;
+  sessionId: number;
+  totalLen: number;
+  latestSeq: number;
+}
+
 export interface ReceiverCallbacks {
   onStateChange?: (state: ReceiverState, detail?: string) => void;
-  onProgress?: (progress: TransferProgress, latestPacket: ProtocolPacket | null) => void;
-  onDevicePaired?: (packet: DevicePairPacket) => void;
+  onProgress?: (progress: ReceiverProgress, header: FrameHeader | null) => void;
   onFileComplete?: (file: ReconstructedFile) => void;
-  onFrameRejected?: (packet: ProtocolPacket, reason: string) => void;
-  onBatchScanned?: (acceptedInFrame: number, totalFoundInFrame: number) => void;
   onError?: (err: Error) => void;
 }
 
@@ -41,24 +52,23 @@ export class OpticalReceiver {
   private scanCtx: CanvasRenderingContext2D | null;
   private animFrameId: number | null = null;
   private scanIntervalId: number | null = null;
-  private assembler = new TransferAssembler();
   private callbacks: ReceiverCallbacks = {};
   private reconstructedFile: ReconstructedFile | null = null;
   private barcodeDetector: any = null;
   private isDetecting = false;
-  private lastScannedKey: string = '';
+
+  private decoder: LTDecoder | null = null;
+  private streamKey: string = '';
 
   constructor(callbacks?: ReceiverCallbacks) {
     if (callbacks) this.callbacks = callbacks;
     this.scanCanvas = document.createElement('canvas');
     this.scanCtx = this.scanCanvas.getContext('2d', { willReadFrequently: true });
 
-    // Initialize native BarcodeDetector if available (GPU-accelerated, finds all QRs in one frame)
     if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
       try {
         this.barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
       } catch (e) {
-        console.warn('[OpticalReceiver] BarcodeDetector init failed, falling back to jsQR', e);
         this.barcodeDetector = null;
       }
     }
@@ -85,8 +95,8 @@ export class OpticalReceiver {
     const constraints: MediaStreamConstraints = {
       audio: false,
       video: deviceId
-        ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-        : { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } }
+        : { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } }
     };
 
     try {
@@ -102,9 +112,6 @@ export class OpticalReceiver {
     }
   }
 
-  /**
-   * Scan directly from a source canvas (for loopback sandbox)
-   */
   public startCanvasScan(sourceCanvas: HTMLCanvasElement) {
     this.stop();
     this.setState('SCANNING');
@@ -113,37 +120,35 @@ export class OpticalReceiver {
       const curState = this.state as ReceiverState;
       if (curState === 'COMPLETE' || curState === 'IDLE') return;
 
-      // Try BarcodeDetector first (native, can detect all QRs in grid at once)
       if (this.barcodeDetector) {
         try {
           const barcodes = await this.barcodeDetector.detect(sourceCanvas);
           if (barcodes && barcodes.length > 0) {
-            let acceptedCount = 0;
             for (const barcode of barcodes) {
-              if (barcode.rawValue) {
-                const accepted = await this.handleRawQrData(barcode.rawValue);
-                if (accepted) acceptedCount++;
-              }
-            }
-            if (this.callbacks.onBatchScanned) {
-              this.callbacks.onBatchScanned(acceptedCount, barcodes.length);
+              const rawBytes = barcode.rawBytes || this.stringToBytes(barcode.rawValue);
+              if (rawBytes) await this.handleRawBytes(rawBytes);
             }
           }
         } catch {}
       }
 
-      // jsQR fallback
+      // jsQR scan
       if (sourceCanvas.width > 0 && sourceCanvas.height > 0) {
         const srcCtx = sourceCanvas.getContext('2d');
         if (srcCtx) {
           const imgData = srcCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-          await this.processImageData(imgData);
+          const qr = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: 'attemptBoth' });
+          if (qr && qr.binaryData && qr.binaryData.length > 0) {
+            await this.handleRawBytes(Uint8Array.from(qr.binaryData));
+          } else if (qr && qr.data) {
+            await this.handleRawBytes(this.stringToBytes(qr.data));
+          }
         }
       }
 
       const postState = this.state as ReceiverState;
       if (postState !== 'COMPLETE' && postState !== 'IDLE') {
-        this.scanIntervalId = window.setTimeout(scanStep, 60);
+        this.scanIntervalId = window.setTimeout(scanStep, 40);
       }
     };
 
@@ -171,19 +176,18 @@ export class OpticalReceiver {
   }
 
   public resetTransfer() {
-    this.assembler.reset();
+    this.decoder = null;
+    this.streamKey = '';
     if (this.reconstructedFile?.downloadUrl) {
       URL.revokeObjectURL(this.reconstructedFile.downloadUrl);
     }
     this.reconstructedFile = null;
-    this.lastScannedKey = '';
     if (this.state === 'COMPLETE') {
       this.setState('SCANNING');
       if (this.videoElement && this.mediaStream) {
         this.startVideoScanLoop();
       }
     }
-    this.notifyProgress(null);
   }
 
   public getReconstructedFile(): ReconstructedFile | null {
@@ -212,7 +216,7 @@ export class OpticalReceiver {
         try {
           await this.scanVideoFrame();
         } catch (e) {
-          console.error('[OpticalReceiver] Scan error:', e);
+          console.error('[Receiver] Scan error:', e);
         } finally {
           this.isDetecting = false;
         }
@@ -234,30 +238,20 @@ export class OpticalReceiver {
     const vh = this.videoElement.videoHeight;
     if (vw === 0 || vh === 0) return;
 
-    // Primary: BarcodeDetector (native, GPU-accelerated — detects all QRs in one call)
     if (this.barcodeDetector) {
       try {
         const barcodes = await this.barcodeDetector.detect(this.videoElement);
         if (barcodes && barcodes.length > 0) {
-          let acceptedCount = 0;
           for (const barcode of barcodes) {
-            if (barcode.rawValue) {
-              const accepted = await this.handleRawQrData(barcode.rawValue);
-              if (accepted) acceptedCount++;
-            }
-          }
-          if (this.callbacks.onBatchScanned) {
-            this.callbacks.onBatchScanned(acceptedCount, barcodes.length);
+            const rawBytes = barcode.rawBytes || this.stringToBytes(barcode.rawValue);
+            if (rawBytes) await this.handleRawBytes(rawBytes);
           }
           return;
         }
-      } catch {
-        // Fall through to jsQR
-      }
+      } catch {}
     }
 
-    // jsQR fallback: draw full frame at reduced resolution then scan quadrants
-    const maxDim = 1280;
+    const maxDim = 1000;
     let targetW = vw;
     let targetH = vh;
     if (targetW > maxDim || targetH > maxDim) {
@@ -273,174 +267,123 @@ export class OpticalReceiver {
 
     this.scanCtx.drawImage(this.videoElement, 0, 0, targetW, targetH);
     const imgData = this.scanCtx.getImageData(0, 0, targetW, targetH);
-    await this.processImageData(imgData);
-  }
-
-  /**
-   * Multi-QR jsQR scan: tries full frame first, then four quadrants simultaneously.
-   * This handles 2×2, 3×3, and 4×4 grid layouts.
-   */
-  private async processImageData(imgData: ImageData) {
-    const w = imgData.width;
-    const h = imgData.height;
-    let totalDetected = 0;
-
-    // 1. Full-frame scan (catches any QR that fits fully in frame)
-    const fullCode = jsQR(imgData.data, w, h, { inversionAttempts: 'attemptBoth' });
-    if (fullCode?.data) {
-      const acc = await this.handleRawQrData(fullCode.data);
-      if (acc) totalDetected++;
-    }
-
-    // 2. Quadrant scans in parallel — covers 4 sectors for 2×2 and larger grids
-    if (this.scanCtx && w >= 200 && h >= 200) {
-      const halfW = Math.floor(w / 2);
-      const halfH = Math.floor(h / 2);
-      const quadrants = [
-        { x: 0, y: 0, qw: halfW, qh: halfH },
-        { x: halfW, y: 0, qw: w - halfW, qh: halfH },
-        { x: 0, y: halfH, qw: halfW, qh: h - halfH },
-        { x: halfW, y: halfH, qw: w - halfW, qh: h - halfH },
-      ];
-
-      const quadResults = await Promise.all(
-        quadrants.map(async ({ x, y, qw, qh }) => {
-          try {
-            const quadImg = this.scanCtx!.getImageData(x, y, qw, qh);
-            const code = jsQR(quadImg.data, qw, qh, { inversionAttempts: 'attemptBoth' });
-            if (code?.data) {
-              return this.handleRawQrData(code.data);
-            }
-          } catch { /* ignore */ }
-          return false;
-        })
-      );
-      for (const acc of quadResults) {
-        if (acc) totalDetected++;
-      }
-
-      // 3. For 3×3 and 4×4 grids: also scan thirds of the frame width
-      // This catches QRs in middle columns that the quadrant splits miss
-      if (w >= 600 && h >= 400) {
-        const thirdW = Math.floor(w / 3);
-        const thirds = [
-          { x: 0, y: 0, qw: thirdW, qh: h },
-          { x: thirdW, y: 0, qw: thirdW, qh: h },
-          { x: thirdW * 2, y: 0, qw: w - thirdW * 2, qh: h },
-        ];
-        const thirdResults = await Promise.all(
-          thirds.map(async ({ x, y, qw, qh }) => {
-            try {
-              const strip = this.scanCtx!.getImageData(x, y, qw, qh);
-              const code = jsQR(strip.data, qw, qh, { inversionAttempts: 'attemptBoth' });
-              if (code?.data) return this.handleRawQrData(code.data);
-            } catch {}
-            return false;
-          })
-        );
-        for (const acc of thirdResults) {
-          if (acc) totalDetected++;
-        }
-      }
-    }
-
-    if (totalDetected > 1 && this.callbacks.onBatchScanned) {
-      this.callbacks.onBatchScanned(totalDetected, totalDetected);
+    const qr = jsQR(imgData.data, targetW, targetH, { inversionAttempts: 'attemptBoth' });
+    if (qr && qr.binaryData && qr.binaryData.length > 0) {
+      await this.handleRawBytes(Uint8Array.from(qr.binaryData));
+    } else if (qr && qr.data) {
+      await this.handleRawBytes(this.stringToBytes(qr.data));
     }
   }
 
-  private async handleRawQrData(rawData: string): Promise<boolean> {
-    const packet = parsePacket(rawData);
-    if (!packet) return false;
-
-    const seqKey = (packet as any).seq ?? (packet as any).batch_index ?? 0;
-    const frameKey = `${packet.transfer_id}_${packet.type}_${seqKey}`;
-    const isConsecutiveDuplicate = this.lastScannedKey === frameKey;
-    this.lastScannedKey = frameKey;
-
-    const result: AddPacketResult = this.assembler.addPacket(packet);
-
-    if (!result.accepted) {
-      if (this.callbacks.onFrameRejected && result.rejectedReason) {
-        this.callbacks.onFrameRejected(packet, result.rejectedReason);
-      }
-      this.notifyProgress(packet);
-      return false;
+  private stringToBytes(str: string): Uint8Array {
+    const bytes = new Uint8Array(str.length);
+    for (let i = 0; i < str.length; i++) {
+      bytes[i] = str.charCodeAt(i) & 0xff;
     }
+    return bytes;
+  }
 
-    if (packet.type === 'DEVICE_PAIR') {
-      if (this.callbacks.onDevicePaired) {
-        this.callbacks.onDevicePaired(packet as DevicePairPacket);
-      }
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        try { navigator.vibrate([60, 60, 120]); } catch {}
-      }
-    } else if (this.state !== 'RECEIVING' && this.state !== 'COMPLETE') {
+  public async handleRawBytes(bytes: Uint8Array): Promise<boolean> {
+    const parsed = parseFrame(bytes);
+    if (!parsed) return false;
+
+    const { header, block } = parsed;
+    const identity = streamIdentity(header);
+
+    if (!this.decoder || this.streamKey !== identity) {
+      this.decoder = new LTDecoder(header.k, header.blockLen, header.sessionId, header.totalLen);
+      this.streamKey = identity;
       this.setState('RECEIVING');
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try { navigator.vibrate([60, 60, 100]); } catch {}
+      }
     }
 
-    if (result.isNew || !isConsecutiveDuplicate) {
-      this.notifyProgress(packet);
+    this.decoder.addFrame(header.seq, block);
+    this.notifyProgress(header);
+
+    if (this.decoder.isComplete && (this.state as ReceiverState) !== 'COMPLETE') {
+      await this.handleCompletion(header);
     }
 
-    if (result.isComplete && (this.state as ReceiverState) !== 'COMPLETE') {
-      await this.handleCompletion();
-    }
     return true;
   }
 
-  private async handleCompletion() {
-    const reconstructed = this.assembler.reconstruct();
-    if (!reconstructed) {
-      this.setState('ERROR', 'Full file integrity checksum mismatch');
+  private notifyProgress(header: FrameHeader | null) {
+    if (!this.decoder || !this.callbacks.onProgress) return;
+    const percent = Math.min(100, Math.round((this.decoder.solvedCount / this.decoder.k) * 100));
+    this.callbacks.onProgress({
+      k: this.decoder.k,
+      solvedCount: this.decoder.solvedCount,
+      framesNew: this.decoder.framesNew,
+      framesDup: this.decoder.framesDup,
+      framesRedundant: this.decoder.framesRedundant,
+      percent,
+      sessionId: header?.sessionId || 0,
+      totalLen: header?.totalLen || 0,
+      latestSeq: header?.seq || 0,
+    }, header);
+  }
+
+  private async handleCompletion(header: FrameHeader) {
+    if (!this.decoder) return;
+    const container = this.decoder.assemble();
+    if (!container) return;
+
+    if (fnv1a(container) !== header.payloadFnv) {
+      this.setState('ERROR', 'Stream integrity checksum mismatch');
       return;
     }
 
-    const downloadUrl = URL.createObjectURL(reconstructed.blob);
-    const isImage = reconstructed.mimeType.startsWith('image/') ||
-      ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(reconstructed.fileExt);
+    try {
+      const file: OpticalFile = await unpackFile(container);
+      const ok = await verifyFile(file);
+      if (!ok) {
+        this.setState('ERROR', 'Full file SHA-256 integrity verification failed');
+        return;
+      }
 
-    let textPreview: string | undefined = undefined;
-    if (
-      reconstructed.mimeType.startsWith('text/') ||
-      ['txt', 'md', 'json', 'csv', 'js', 'ts', 'html'].includes(reconstructed.fileExt) ||
-      reconstructed.fileBuffer.byteLength < 5000
-    ) {
-      try {
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(reconstructed.fileBuffer);
-        textPreview = text.length > 500 ? text.substring(0, 500) + '...' : text;
-      } catch { /* Binary file, no text preview */ }
-    }
+      const blob = new Blob([file.bytes as BlobPart], { type: file.type });
+      const downloadUrl = URL.createObjectURL(blob);
+      const isImage = file.type.startsWith('image/') ||
+        ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(file.name.split('.').pop() || '');
 
-    this.reconstructedFile = {
-      fileName: reconstructed.fileName,
-      fileExt: reconstructed.fileExt,
-      fileSize: reconstructed.fileBuffer.byteLength,
-      mimeType: reconstructed.mimeType,
-      transferId: reconstructed.transferId,
-      checksum: reconstructed.checksum,
-      blob: reconstructed.blob,
-      downloadUrl,
-      textPreview,
-      isImage
-    };
+      let textPreview: string | undefined = undefined;
+      if (file.type.startsWith('text/') || file.bytes.length < 5000) {
+        try {
+          const text = new TextDecoder('utf-8', { fatal: true }).decode(file.bytes);
+          textPreview = text.length > 500 ? text.substring(0, 500) + '...' : text;
+        } catch {}
+      }
 
-    this.setState('COMPLETE');
-    this.notifyProgress(null);
+      this.reconstructedFile = {
+        fileName: file.name,
+        fileExt: file.name.split('.').pop() || '',
+        fileSize: file.bytes.length,
+        transmittedSize: file.transmittedSize,
+        compression: file.compression,
+        mimeType: file.type,
+        sessionId: header.sessionId,
+        downloadUrl,
+        textPreview,
+        isImage,
+      };
 
-    if (this.callbacks.onFileComplete) {
-      this.callbacks.onFileComplete(this.reconstructedFile);
+      this.setState('COMPLETE');
+      if (this.callbacks.onFileComplete) {
+        this.callbacks.onFileComplete(this.reconstructedFile);
+      }
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try { navigator.vibrate([100, 50, 100, 50, 200]); } catch {}
+      }
+    } catch (err: any) {
+      console.error('[Receiver] Unpack error:', err);
+      this.setState('ERROR', err.message || 'Failed to unpack file');
     }
   }
 
   private setState(state: ReceiverState, detail?: string) {
     this.state = state;
     if (this.callbacks.onStateChange) this.callbacks.onStateChange(state, detail);
-  }
-
-  private notifyProgress(latestPacket: ProtocolPacket | null) {
-    if (this.callbacks.onProgress) {
-      this.callbacks.onProgress(this.assembler.getProgress(), latestPacket);
-    }
   }
 }

@@ -1,430 +1,506 @@
 /**
- * Cross-Device Optical File Transfer Protocol (v2) — Luma
- * High-speed single animated QR code stream with terminal typewriter UI.
+ * Decimen Optical Protocol (Wire v3) with Systematic-Carousel Fountain Code.
+ * 
+ * High-speed binary optical air-gap transfer engine.
+ * Self-describing 22-byte header + binary QR mode (no Base64, no JSON bloat).
+ * Includes Gzip compression, SHA-256 verification, and robust LTEncoder / LTDecoder.
  */
 
-export const PROTOCOL_HEADER = 'LUMA2:';
-export const PROTOCOL_VERSION = 2;
-export const DEFAULT_CHUNK_SIZE = 250; // High throughput per single QR code
+export const HEADER_LEN = 22;
+export const MAGIC0 = 0xd1;
+export const MAGIC1 = 0xc3;
+export const WIRE_VERSION = 3;
+export const CRITICAL_FLAGS = 0x0f;
+export const SUPPORTED_FLAGS = 0x00;
 
-export type PacketType = 'DEVICE_PAIR' | 'TRANSFER_START' | 'DATA_FRAME' | 'TRANSFER_END';
-export type GridMode = '1x1';
+export const DEFAULT_FRAME_BYTES = 1465; // ~V27 QR Code, optimal sweet spot
+export const FRAME_BYTES_OPTIONS = [600, 1000, 1465, 2000, 2953] as const;
 
-export const GRID_SIZES: Record<GridMode, number> = {
-  '1x1': 1,
-};
+export const MAX_FILE_BYTES = 64 * 1024 * 1024;
+export const MAX_FILE_LABEL = '64 MB';
+export const FILE_HEADER_LEN = 49;
+export const FILE_MAGIC = new Uint8Array([0x44, 0x43, 0x46, 0x32]); // DCF2
 
-/**
- * 0. DEVICE_PAIR Frame
- */
-export interface DevicePairPacket {
-  type: 'DEVICE_PAIR';
-  protocol_version: number;
-  transfer_id: string;
-  device_name: string;
-  grid_mode: string;
-  module_count: number;
-  timestamp: number;
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+export type CompressionMode = 'none' | 'gzip';
+
+export interface PackedOpticalFile {
+  container: Uint8Array;
+  compression: CompressionMode;
+  originalSize: number;
+  transmittedSize: number;
 }
 
-/**
- * 1. TRANSFER_START Frame
- */
-export interface TransferStartPacket {
-  type: 'TRANSFER_START';
-  protocol_version: number;
-  transfer_id: string;
-  filename: string;
-  file_ext: string;
-  mime_type: string;
-  file_size: number;
-  chunk_size: number;
-  total_chunks: number;
-  file_checksum: number;
+export interface OpticalFile {
+  name: string;
+  type: string;
+  bytes: Uint8Array;
+  sha256: Uint8Array;
+  compression: CompressionMode;
+  transmittedSize: number;
 }
 
-/**
- * 2. DATA_FRAME — single QR code per chunk
- */
-export interface DataFramePacket {
-  type: 'DATA_FRAME';
-  protocol_version: number;
-  transfer_id: string;
-  chunk_id: string;
+export interface FrameHeader {
+  sessionId: number;
   seq: number;
-  total_chunks: number;
-  payload: string;
-  crc: number;
+  k: number;
+  blockLen: number;
+  totalLen: number;
+  payloadFnv: number;
+  flags: number;
 }
 
-/**
- * 3. TRANSFER_END Frame
- */
-export interface TransferEndPacket {
-  type: 'TRANSFER_END';
-  protocol_version: number;
-  transfer_id: string;
-  total_chunks: number;
-  checksum: number;
+export type FrameVerdict =
+  | { kind: 'ok' }
+  | { kind: 'foreign' }
+  | { kind: 'older-sender'; version: number }
+  | { kind: 'newer-sender'; version: number }
+  | { kind: 'unsupported-flags'; flags: number }
+  | { kind: 'malformed' };
+
+/** Media types whose bytes are already compressed (skip gzip attempt) */
+const PRECOMPRESSED_TYPES = new Set([
+  'application/gzip',
+  'application/java-archive',
+  'application/vnd.rar',
+  'application/x-7z-compressed',
+  'application/x-brotli',
+  'application/x-bzip',
+  'application/x-bzip2',
+  'application/x-gzip',
+  'application/x-lzma',
+  'application/x-rar-compressed',
+  'application/x-xz',
+  'application/x-zip-compressed',
+  'application/zip',
+  'application/zstd',
+]);
+
+const COMPRESSIBLE_IMAGES = /^image\/(bmp|x-ms-bmp|svg\+xml|tiff|x-icon|vnd\.microsoft\.icon)$/;
+const COMPRESSIBLE_AUDIO = /^audio\/(wav|x-wav|wave|vnd\.wave|aiff|x-aiff|basic|l16)$/;
+
+export function isPrecompressedType(type: string): boolean {
+  const media = type.split(';')[0]!.trim().toLowerCase();
+  if (media.startsWith('video/')) return true;
+  if (media.startsWith('image/')) return !COMPRESSIBLE_IMAGES.test(media);
+  if (media.startsWith('audio/')) return !COMPRESSIBLE_AUDIO.test(media);
+  if (media.startsWith('application/vnd.openxmlformats-officedocument.')) return true;
+  if (media.startsWith('application/vnd.oasis.opendocument.')) return true;
+  if (media.endsWith('+zip')) return true;
+  return PRECOMPRESSED_TYPES.has(media);
 }
 
-export type ProtocolPacket = DevicePairPacket | TransferStartPacket | DataFramePacket | TransferEndPacket;
-
-// CRC32
-const CRC_TABLE = new Uint32Array(256);
-for (let i = 0; i < 256; i++) {
-  let c = i;
-  for (let j = 0; j < 8; j++) { c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1); }
-  CRC_TABLE[i] = c >>> 0;
+export function safeFileName(name: string): string {
+  const base = name.split(/[\\/]/).pop() ?? '';
+  const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  return cleaned === '' || cleaned === '.' || cleaned === '..' ? 'transfer.bin' : cleaned;
 }
 
-export function crc32(data: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) {
-    crc = (CRC_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8)) >>> 0;
+export async function digest(bytes: Uint8Array): Promise<Uint8Array> {
+  const stableBytes = Uint8Array.from(bytes);
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', stableBytes));
+}
+
+export async function gzipAsync(bytes: Uint8Array): Promise<Uint8Array> {
+  const compressed = new Blob([bytes as BlobPart])
+    .stream()
+    .pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(compressed).arrayBuffer());
+}
+
+export async function gunzipAsync(bytes: Uint8Array, maxBytes: number): Promise<Uint8Array> {
+  const inflated = new Blob([bytes as BlobPart])
+    .stream()
+    .pipeThrough(new DecompressionStream('gzip'));
+  const reader = inflated.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error('Inflate overflow: payload exceeds declared bounds');
+    }
+    chunks.push(value);
   }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-export function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-export function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-export function getFileExtension(filename: string): string {
-  const dotIndex = filename.lastIndexOf('.');
-  if (dotIndex !== -1 && dotIndex < filename.length - 1) {
-    return filename.substring(dotIndex + 1).toLowerCase();
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
   }
-  return '';
+  return out;
 }
 
-export function createPairingPacket(
-  transferId: string,
-  deviceName: string = 'LumaAir',
-  gridMode: string = '1x1',
-  moduleCount: number = 1
-): DevicePairPacket {
+export async function packFile(
+  name: string,
+  type: string,
+  bytes: Uint8Array
+): Promise<PackedOpticalFile> {
+  if (bytes.length === 0) throw new Error('Cannot pack empty file');
+  if (bytes.length > MAX_FILE_BYTES) {
+    throw new Error(`Files are limited to ${MAX_FILE_LABEL}`);
+  }
+
+  const nameBytes = textEncoder.encode(safeFileName(name));
+  const typeBytes = textEncoder.encode(type || 'application/octet-stream');
+  if (nameBytes.length > 0xffff || typeBytes.length > 0xffff) {
+    throw new Error('File name or type too long');
+  }
+
+  const tryGzip = bytes.length >= 768 && !isPrecompressedType(type);
+  const [sha256, compressed] = await Promise.all([
+    digest(bytes),
+    tryGzip ? gzipAsync(bytes).catch(() => undefined) : Promise.resolve(undefined),
+  ]);
+
+  const useGzip = compressed !== undefined && compressed.length + 64 < bytes.length;
+  const transmitted = useGzip ? compressed : bytes;
+  const compression: CompressionMode = useGzip ? 'gzip' : 'none';
+
+  const out = new Uint8Array(
+    FILE_HEADER_LEN + nameBytes.length + typeBytes.length + transmitted.length
+  );
+  const view = new DataView(out.buffer);
+
+  out.set(FILE_MAGIC, 0);
+  view.setUint8(4, useGzip ? 1 : 0);
+  view.setUint16(5, nameBytes.length, true);
+  view.setUint16(7, typeBytes.length, true);
+  view.setUint32(9, bytes.length, true);
+  view.setUint32(13, transmitted.length, true);
+  out.set(sha256, 17);
+  out.set(nameBytes, FILE_HEADER_LEN);
+  out.set(typeBytes, FILE_HEADER_LEN + nameBytes.length);
+  out.set(transmitted, FILE_HEADER_LEN + nameBytes.length + typeBytes.length);
+
   return {
-    type: 'DEVICE_PAIR',
-    protocol_version: PROTOCOL_VERSION,
-    transfer_id: transferId,
-    device_name: deviceName,
-    grid_mode: gridMode,
-    module_count: moduleCount,
-    timestamp: Date.now()
+    container: out,
+    compression,
+    originalSize: bytes.length,
+    transmittedSize: transmitted.length,
   };
 }
 
-/**
- * Create structured transmission packets: START → N×DATA_FRAME → END
- */
-export function createTransferPackets(
-  fileBuffer: Uint8Array,
-  fileName: string,
-  fileMime: string = 'application/octet-stream',
-  chunkSize: number = DEFAULT_CHUNK_SIZE
-): ProtocolPacket[] {
-  const totalBytes = fileBuffer.byteLength;
-  const totalChunks = Math.max(1, Math.ceil(totalBytes / chunkSize));
-  const fileExt = getFileExtension(fileName);
-  const fileChecksum = crc32(fileBuffer);
-  const transferId = Math.random().toString(36).substring(2, 10);
-  const packets: ProtocolPacket[] = [];
-
-  packets.push({
-    type: 'TRANSFER_START',
-    protocol_version: PROTOCOL_VERSION,
-    transfer_id: transferId,
-    filename: fileName,
-    file_ext: fileExt,
-    mime_type: fileMime || 'application/octet-stream',
-    file_size: totalBytes,
-    chunk_size: chunkSize,
-    total_chunks: totalChunks,
-    file_checksum: fileChecksum
-  } as TransferStartPacket);
-
-  for (let i = 0; i < totalChunks; i++) {
-    const start = i * chunkSize;
-    const end = Math.min(start + chunkSize, totalBytes);
-    const chunkBytes = fileBuffer.slice(start, end);
-    packets.push({
-      type: 'DATA_FRAME',
-      protocol_version: PROTOCOL_VERSION,
-      transfer_id: transferId,
-      chunk_id: `${transferId}_chunk_${i}`,
-      seq: i,
-      total_chunks: totalChunks,
-      payload: bytesToBase64(chunkBytes),
-      crc: crc32(chunkBytes)
-    } as DataFramePacket);
+export async function unpackFile(container: Uint8Array): Promise<OpticalFile> {
+  if (container.length < FILE_HEADER_LEN) throw new Error('Container truncated');
+  for (let i = 0; i < FILE_MAGIC.length; i++) {
+    if (container[i] !== FILE_MAGIC[i]) throw new Error('Container bad magic');
   }
 
-  packets.push({
-    type: 'TRANSFER_END',
-    protocol_version: PROTOCOL_VERSION,
-    transfer_id: transferId,
-    total_chunks: totalChunks,
-    checksum: fileChecksum
-  } as TransferEndPacket);
+  const view = new DataView(container.buffer, container.byteOffset, container.byteLength);
+  const compressionByte = view.getUint8(4);
+  const compression: CompressionMode = compressionByte === 1 ? 'gzip' : 'none';
+  const nameLength = view.getUint16(5, true);
+  const typeLength = view.getUint16(7, true);
+  const fileLength = view.getUint32(9, true);
+  const transmittedLength = view.getUint32(13, true);
+  const dataOffset = FILE_HEADER_LEN + nameLength + typeLength;
 
-  return packets;
-}
-
-export function serializePacket(packet: ProtocolPacket): string {
-  return PROTOCOL_HEADER + JSON.stringify(packet);
-}
-
-export function parsePacket(rawString: string): ProtocolPacket | null {
-  if (!rawString || typeof rawString !== 'string') return null;
-
-  let jsonStr = rawString;
-  if (rawString.startsWith(PROTOCOL_HEADER)) {
-    jsonStr = rawString.slice(PROTOCOL_HEADER.length);
-  } else if (rawString.startsWith('OFT1:')) {
-    jsonStr = rawString.slice(5);
-  } else {
-    if (!rawString.trim().startsWith('{')) return null;
+  if (
+    fileLength === 0 ||
+    fileLength > MAX_FILE_BYTES ||
+    transmittedLength === 0 ||
+    dataOffset + transmittedLength !== container.length
+  ) {
+    throw new Error('Container length mismatch');
   }
 
-  try {
-    const obj = JSON.parse(jsonStr);
-    if (!obj || typeof obj !== 'object') return null;
+  const transmitted = container.slice(dataOffset);
+  const bytes = compression === 'gzip' ? await gunzipAsync(transmitted, fileLength) : transmitted;
+  if (bytes.length !== fileLength) {
+    throw new Error('Decompressed length mismatch');
+  }
 
-    if (obj.type === 'DEVICE_PAIR') {
-      if (typeof obj.transfer_id === 'string') {
-        return {
-          type: 'DEVICE_PAIR',
-          protocol_version: obj.protocol_version || PROTOCOL_VERSION,
-          transfer_id: obj.transfer_id,
-          device_name: obj.device_name || 'LumaAir',
-          grid_mode: obj.grid_mode || '1x1',
-          module_count: obj.module_count || 1,
-          timestamp: obj.timestamp || Date.now()
-        } as DevicePairPacket;
+  return {
+    name: safeFileName(
+      textDecoder.decode(container.subarray(FILE_HEADER_LEN, FILE_HEADER_LEN + nameLength))
+    ),
+    type:
+      textDecoder.decode(container.subarray(FILE_HEADER_LEN + nameLength, dataOffset)) ||
+      'application/octet-stream',
+    sha256: container.slice(17, 49),
+    bytes,
+    compression,
+    transmittedSize: transmittedLength,
+  };
+}
+
+export async function verifyFile(file: OpticalFile): Promise<boolean> {
+  const actual = await digest(file.bytes);
+  return actual.every((value, index) => value === file.sha256[index]);
+}
+
+export function fnv1a(bytes: Uint8Array): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    h ^= bytes[i]!;
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+export function splitmix32(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x9e3779b9) | 0;
+    let t = s ^ (s >>> 16);
+    t = Math.imul(t, 0x21f0aaad);
+    t ^= t >>> 15;
+    t = Math.imul(t, 0x735a2d97);
+    t ^= t >>> 15;
+    return t >>> 0;
+  };
+}
+
+export function blockLength(frameBytes: number): number {
+  return frameBytes - HEADER_LEN;
+}
+
+export function sourceBlockCount(payloadBytes: number, frameBytes: number): number {
+  return Math.max(1, Math.ceil(payloadBytes / blockLength(frameBytes)));
+}
+
+export function fitsInOneStream(payloadBytes: number, frameBytes: number): boolean {
+  return sourceBlockCount(payloadBytes, frameBytes) <= 0xffff;
+}
+
+export function cycleLength(k: number): number {
+  return 2 * k;
+}
+
+function frameSeed(sessionId: number, seq: number): number {
+  let h = (Math.imul(sessionId + 1, 0x9e3779b1) ^ (seq + 0x85ebca6b)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) | 0;
+}
+
+const REPAIR_DEGREE_MIN = 4;
+const REPAIR_DEGREE_MAX = 24;
+
+function repairIndices(k: number, sessionId: number, seq: number): number[] {
+  const rnd = splitmix32(frameSeed(sessionId, seq));
+  const d = Math.min(k, REPAIR_DEGREE_MIN + (rnd() % (REPAIR_DEGREE_MAX - REPAIR_DEGREE_MIN + 1)));
+  const set = new Set<number>();
+  while (set.size < d) set.add(rnd() % k);
+  return [...set];
+}
+
+export function frameComposition(k: number, sessionId: number, seq: number): number[] {
+  const pos = seq % cycleLength(k);
+  return pos < k ? [pos] : repairIndices(k, sessionId, seq);
+}
+
+function xorInto(dst: Uint32Array, src: Uint32Array): void {
+  for (let i = 0; i < dst.length; i++) dst[i] = (dst[i]! ^ src[i]!) >>> 0;
+}
+
+export class LTEncoder {
+  readonly k: number;
+  private readonly words: number;
+  private readonly blocks: Uint32Array;
+
+  constructor(
+    payload: Uint8Array,
+    readonly blockLen: number,
+    readonly sessionId: number
+  ) {
+    this.k = Math.max(1, Math.ceil(payload.length / blockLen));
+    this.words = Math.ceil(blockLen / 4);
+    this.blocks = new Uint32Array(this.k * this.words);
+    const bytes = new Uint8Array(this.blocks.buffer);
+    for (let b = 0; b < this.k; b++) {
+      const src = payload.subarray(b * blockLen, Math.min((b + 1) * blockLen, payload.length));
+      bytes.set(src, b * this.words * 4);
+    }
+  }
+
+  encode(seq: number): Uint8Array {
+    const idx = frameComposition(this.k, this.sessionId, seq);
+    const out = new Uint32Array(this.words);
+    for (const b of idx) {
+      const off = b * this.words;
+      for (let w = 0; w < this.words; w++) out[w] = (out[w]! ^ this.blocks[off + w]!) >>> 0;
+    }
+    return new Uint8Array(out.buffer, 0, this.blockLen);
+  }
+}
+
+interface PendingFrame {
+  idx: Set<number>;
+  words: Uint32Array;
+}
+
+export class LTDecoder {
+  private readonly words: number;
+  private readonly solved: (Uint32Array | null)[];
+  private readonly byBlock = new Map<number, Set<PendingFrame>>();
+  private readonly seen = new Set<number>();
+  solvedCount = 0;
+  framesNew = 0;
+  framesDup = 0;
+  framesRedundant = 0;
+
+  constructor(
+    readonly k: number,
+    readonly blockLen: number,
+    readonly sessionId: number,
+    readonly totalLen: number
+  ) {
+    this.words = Math.ceil(blockLen / 4);
+    this.solved = new Array<Uint32Array | null>(k).fill(null);
+  }
+
+  get isComplete(): boolean {
+    return this.solvedCount >= this.k;
+  }
+
+  addFrame(seq: number, block: Uint8Array): void {
+    if (this.seen.has(seq)) {
+      this.framesDup++;
+      return;
+    }
+    this.seen.add(seq);
+    this.framesNew++;
+    if (this.isComplete) return;
+
+    const idx = new Set(frameComposition(this.k, this.sessionId, seq));
+    const words = new Uint32Array(this.words);
+    new Uint8Array(words.buffer).set(block.subarray(0, this.blockLen));
+
+    for (const b of [...idx]) {
+      const s = this.solved[b];
+      if (s) {
+        xorInto(words, s);
+        idx.delete(b);
       }
-    } else if (obj.type === 'TRANSFER_START') {
-      if (typeof obj.transfer_id === 'string' && typeof obj.filename === 'string' &&
-          typeof obj.file_size === 'number' && typeof obj.total_chunks === 'number' &&
-          typeof obj.file_checksum === 'number') {
-        return obj as TransferStartPacket;
+    }
+
+    if (idx.size === 0) {
+      this.framesRedundant++;
+      return;
+    }
+
+    if (idx.size === 1) {
+      this.resolve(idx.values().next().value!, words);
+      return;
+    }
+
+    const pf: PendingFrame = { idx, words };
+    for (const b of idx) {
+      let set = this.byBlock.get(b);
+      if (!set) {
+        set = new Set();
+        this.byBlock.set(b, set);
       }
-    } else if (obj.type === 'DATA_FRAME') {
-      if (typeof obj.transfer_id === 'string' && typeof obj.seq === 'number' &&
-          typeof obj.payload === 'string' && typeof obj.crc === 'number') {
-        const chunkBytes = base64ToBytes(obj.payload);
-        const computedCrc = crc32(chunkBytes);
-        if (computedCrc !== obj.crc) {
-          console.warn(`[Protocol] Chunk CRC mismatch for seq ${obj.seq}: expected ${obj.crc}, got ${computedCrc}`);
-          return null;
+      set.add(pf);
+    }
+  }
+
+  private resolve(b0: number, w0: Uint32Array): void {
+    const queue: [number, Uint32Array][] = [[b0, w0]];
+    while (queue.length > 0) {
+      const [b, w] = queue.pop()!;
+      if (this.solved[b]) continue;
+      this.solved[b] = w;
+      this.solvedCount++;
+      const waiting = this.byBlock.get(b);
+      if (!waiting) continue;
+      this.byBlock.delete(b);
+      for (const pf of waiting) {
+        xorInto(pf.words, w);
+        pf.idx.delete(b);
+        if (pf.idx.size === 1) {
+          const r = pf.idx.values().next().value!;
+          this.byBlock.get(r)?.delete(pf);
+          if (!this.solved[r]) queue.push([r, pf.words]);
         }
-        return obj as DataFramePacket;
       }
-    } else if (obj.type === 'TRANSFER_END') {
-      if (typeof obj.transfer_id === 'string' && typeof obj.total_chunks === 'number' &&
-          typeof obj.checksum === 'number') {
-        return obj as TransferEndPacket;
-      }
-    } else if (obj.v === 1 && typeof obj.id === 'string' && typeof obj.seq === 'number') {
-      const chunkBytes = base64ToBytes(obj.data);
-      if (crc32(chunkBytes) !== obj.crc) return null;
-      return {
-        type: 'DATA_FRAME',
-        protocol_version: 1,
-        transfer_id: obj.id,
-        chunk_id: `${obj.id}_chunk_${obj.seq}`,
-        seq: obj.seq,
-        total_chunks: obj.total || 0,
-        payload: obj.data,
-        crc: obj.crc
-      } as DataFramePacket;
     }
-  } catch { return null; }
+  }
 
-  return null;
+  assemble(): Uint8Array | null {
+    if (!this.isComplete) return null;
+    const out = new Uint8Array(this.totalLen);
+    for (let b = 0; b < this.k; b++) {
+      const start = b * this.blockLen;
+      const len = Math.min(this.blockLen, this.totalLen - start);
+      if (len > 0) out.set(new Uint8Array(this.solved[b]!.buffer, 0, len), start);
+    }
+    return out;
+  }
 }
 
-export interface TransferProgress {
-  transferId: string;
-  fileName: string;
-  fileExt: string;
-  fileSize: number;
-  mimeType: string;
-  totalChunks: number;
-  receivedCount: number;
-  percentage: number;
-  isComplete: boolean;
-  hasStartHeader: boolean;
-  hasEndMarker: boolean;
-  missingChunks: number[];
-  receivedIndices: number[];
-  rejectedCount: number;
-  lastRejectedTransferId: string | null;
-  isPaired: boolean;
-  pairedDeviceName: string;
+export function packFrame(h: FrameHeader, block: Uint8Array): Uint8Array {
+  const out = new Uint8Array(HEADER_LEN + block.length);
+  const dv = new DataView(out.buffer);
+  dv.setUint8(0, MAGIC0);
+  dv.setUint8(1, MAGIC1);
+  dv.setUint8(2, WIRE_VERSION);
+  dv.setUint8(3, h.flags);
+  dv.setUint16(4, h.sessionId, true);
+  dv.setUint32(6, h.seq, true);
+  dv.setUint16(10, h.k, true);
+  dv.setUint16(12, h.blockLen, true);
+  dv.setUint32(14, h.totalLen, true);
+  dv.setUint32(18, h.payloadFnv, true);
+  out.set(block, HEADER_LEN);
+  return out;
 }
 
-export interface AddPacketResult {
-  accepted: boolean;
-  isNew: boolean;
-  isComplete: boolean;
-  rejectedReason?: string;
-  packetType: PacketType;
+export function classifyFrame(bytes: Uint8Array): FrameVerdict {
+  if (bytes.length < 4 || bytes[0] !== MAGIC0) return { kind: 'foreign' };
+  if (bytes[1] !== MAGIC1) return { kind: 'foreign' };
+
+  const version = bytes[2]!;
+  if (version === 0) return { kind: 'malformed' };
+  if (version !== WIRE_VERSION) {
+    return version > WIRE_VERSION
+      ? { kind: 'newer-sender', version }
+      : { kind: 'older-sender', version };
+  }
+
+  const unknownCritical = bytes[3]! & CRITICAL_FLAGS & ~SUPPORTED_FLAGS;
+  if (unknownCritical !== 0) return { kind: 'unsupported-flags', flags: unknownCritical };
+  if (bytes.length <= HEADER_LEN) return { kind: 'malformed' };
+
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const k = dv.getUint16(10, true);
+  const blockLen = dv.getUint16(12, true);
+  const totalLen = dv.getUint32(14, true);
+  if (k === 0 || blockLen === 0 || totalLen === 0) return { kind: 'malformed' };
+  if (bytes.length !== HEADER_LEN + blockLen) return { kind: 'malformed' };
+
+  return { kind: 'ok' };
 }
 
-export class TransferAssembler {
-  private activeTransferId: string | null = null;
-  private header: TransferStartPacket | null = null;
-  private endPacket: TransferEndPacket | null = null;
-  private expectedTotalChunks: number = 0;
-  private expectedFileSize: number = 0;
-  private receivedChunks = new Map<number, Uint8Array>();
-  private rejectedCount: number = 0;
-  private lastRejectedTransferId: string | null = null;
-  private isPaired: boolean = false;
-  private pairedDeviceName: string = '';
+export function parseFrame(
+  bytes: Uint8Array
+): { header: FrameHeader; block: Uint8Array } | null {
+  if (classifyFrame(bytes).kind !== 'ok') return null;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const header: FrameHeader = {
+    sessionId: dv.getUint16(4, true),
+    seq: dv.getUint32(6, true),
+    k: dv.getUint16(10, true),
+    blockLen: dv.getUint16(12, true),
+    totalLen: dv.getUint32(14, true),
+    payloadFnv: dv.getUint32(18, true),
+    flags: dv.getUint8(3),
+  };
+  return { header, block: bytes.subarray(HEADER_LEN) };
+}
 
-  public addPacket(packet: ProtocolPacket): AddPacketResult {
-    const packetTransferId = packet.transfer_id;
+export function streamIdentity(h: FrameHeader): string {
+  const critical = h.flags & CRITICAL_FLAGS;
+  return `${h.sessionId}:${h.k}:${h.blockLen}:${h.totalLen}:${h.payloadFnv}:${critical}`;
+}
 
-    if (this.activeTransferId !== null && packetTransferId !== this.activeTransferId) {
-      this.rejectedCount++;
-      this.lastRejectedTransferId = packetTransferId;
-      console.warn(`[Assembler] Rejected frame from foreign transfer ${packetTransferId} (active: ${this.activeTransferId})`);
-      return {
-        accepted: false, isNew: false, isComplete: false,
-        rejectedReason: `Belongs to different transfer ${packetTransferId} (locked to ${this.activeTransferId})`,
-        packetType: packet.type
-      };
-    }
-
-    if (this.activeTransferId === null) this.activeTransferId = packetTransferId;
-
-    let isNew = false;
-
-    if (packet.type === 'DEVICE_PAIR') {
-      const wasPaired = this.isPaired;
-      this.isPaired = true;
-      this.pairedDeviceName = packet.device_name || 'LumaAir';
-      return { accepted: true, isNew: !wasPaired, isComplete: false, packetType: 'DEVICE_PAIR' };
-    } else if (packet.type === 'TRANSFER_START') {
-      if (!this.header) {
-        this.header = packet;
-        this.expectedTotalChunks = packet.total_chunks;
-        this.expectedFileSize = packet.file_size;
-        isNew = true;
-      }
-    } else if (packet.type === 'DATA_FRAME') {
-      if (this.expectedTotalChunks === 0 && packet.total_chunks > 0) {
-        this.expectedTotalChunks = packet.total_chunks;
-      }
-      if (!this.receivedChunks.has(packet.seq)) {
-        const chunkBytes = base64ToBytes(packet.payload);
-        this.receivedChunks.set(packet.seq, chunkBytes);
-        isNew = true;
-      }
-    } else if (packet.type === 'TRANSFER_END') {
-      if (!this.endPacket) {
-        this.endPacket = packet;
-        if (this.expectedTotalChunks === 0) this.expectedTotalChunks = packet.total_chunks;
-        isNew = true;
-      }
-    }
-
-    return { accepted: true, isNew, isComplete: this.isComplete(), packetType: packet.type };
-  }
-
-  public isComplete(): boolean {
-    if (this.expectedTotalChunks === 0) return false;
-    if (this.receivedChunks.size !== this.expectedTotalChunks) return false;
-    const targetChecksum = this.header?.file_checksum ?? this.endPacket?.checksum;
-    if (targetChecksum !== undefined) {
-      const reconstructed = this.assembleBuffer();
-      if (!reconstructed) return false;
-      return crc32(reconstructed) === targetChecksum;
-    }
-    return true;
-  }
-
-  private assembleBuffer(): Uint8Array | null {
-    if (this.expectedTotalChunks === 0 || this.receivedChunks.size !== this.expectedTotalChunks) return null;
-    let calculatedSize = 0;
-    for (let i = 0; i < this.expectedTotalChunks; i++) {
-      const chunk = this.receivedChunks.get(i);
-      if (!chunk) return null;
-      calculatedSize += chunk.byteLength;
-    }
-    const fullBuffer = new Uint8Array(calculatedSize);
-    let offset = 0;
-    for (let i = 0; i < this.expectedTotalChunks; i++) {
-      const chunk = this.receivedChunks.get(i)!;
-      fullBuffer.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return fullBuffer;
-  }
-
-  public getProgress(): TransferProgress {
-    const receivedCount = this.receivedChunks.size;
-    const total = this.expectedTotalChunks;
-    const percentage = total > 0 ? Math.round((receivedCount / total) * 100) : 0;
-    const missingChunks: number[] = [];
-    for (let i = 0; i < total; i++) {
-      if (!this.receivedChunks.has(i)) missingChunks.push(i);
-    }
-    const receivedIndices = Array.from(this.receivedChunks.keys()).sort((a, b) => a - b);
-    return {
-      transferId: this.activeTransferId || '',
-      fileName: this.header?.filename || 'Receiving stream...',
-      fileExt: this.header?.file_ext || '',
-      fileSize: this.expectedFileSize,
-      mimeType: this.header?.mime_type || 'application/octet-stream',
-      totalChunks: total, receivedCount, percentage,
-      isComplete: this.isComplete(),
-      hasStartHeader: this.header !== null,
-      hasEndMarker: this.endPacket !== null,
-      missingChunks, receivedIndices,
-      rejectedCount: this.rejectedCount,
-      lastRejectedTransferId: this.lastRejectedTransferId,
-      isPaired: this.isPaired, pairedDeviceName: this.pairedDeviceName
-    };
-  }
-
-  public reconstruct(): {
-    fileBuffer: Uint8Array; blob: Blob; fileName: string;
-    fileExt: string; mimeType: string; checksum: number; transferId: string;
-  } | null {
-    if (!this.isComplete()) return null;
-    const fullBuffer = this.assembleBuffer();
-    if (!fullBuffer) return null;
-    const computedChecksum = crc32(fullBuffer);
-    const targetChecksum = this.header?.file_checksum ?? this.endPacket?.checksum;
-    if (targetChecksum !== undefined && computedChecksum !== targetChecksum) {
-      console.error(`[Assembler] Integrity mismatch: expected ${targetChecksum}, got ${computedChecksum}`);
-      return null;
-    }
-    const fileName = this.header?.filename || `transfer_${this.activeTransferId}.bin`;
-    const mimeType = this.header?.mime_type || 'application/octet-stream';
-    const fileExt = this.header?.file_ext || getFileExtension(fileName);
-    const blob = new Blob([fullBuffer as BlobPart], { type: mimeType });
-    return { fileBuffer: fullBuffer, blob, fileName, fileExt, mimeType, checksum: computedChecksum, transferId: this.activeTransferId || '' };
-  }
-
-  public reset() {
-    this.activeTransferId = null; this.header = null; this.endPacket = null;
-    this.expectedTotalChunks = 0; this.expectedFileSize = 0;
-    this.receivedChunks.clear(); this.rejectedCount = 0;
-    this.lastRejectedTransferId = null; this.isPaired = false; this.pairedDeviceName = '';
-  }
+export function getFileExtension(filename: string): string {
+  const parts = filename.split('.');
+  return parts.length > 1 ? parts.pop()!.toLowerCase() : '';
 }

@@ -1,63 +1,78 @@
 import QRCode from 'qrcode';
 import {
-  createTransferPackets,
-  createPairingPacket,
-  serializePacket,
-  ProtocolPacket,
-  PacketType,
-  DEFAULT_CHUNK_SIZE,
-  GridMode,
+  packFile,
+  packFrame,
+  LTEncoder,
+  cycleLength,
+  blockLength,
+  fnv1a,
+  DEFAULT_FRAME_BYTES,
+  FrameHeader,
+  PackedOpticalFile,
+  CompressionMode,
+  getFileExtension,
 } from './protocol';
 
 export type SenderState = 'IDLE' | 'PAIRING' | 'LOADED' | 'TRANSMITTING' | 'PAUSED' | 'STOPPED';
 
 export interface FrameInfo {
-  frameIndex: number;
-  totalFrames: number;
+  frameIndex: number; // seq
+  totalFrames: number; // k (source blocks)
+  cycleFrames: number; // 2 * k
   loopCount: number;
-  frameType: PacketType;
-  transferId: string;
+  sessionId: number;
   fileName: string;
   fileExt: string;
   fileSize: number;
+  transmittedSize: number;
+  compression: CompressionMode;
   fps: number;
-  packet: ProtocolPacket | null;
-  gridMode: GridMode;
-  currentPage: number;
-  totalPages: number;
-  pageSize: number;
+  frameBytes: number;
+  seq: number;
+  isRepairFrame: boolean;
   activeSlotsCount: number;
   emptySlotsCount: number;
   pageHoldSeconds: number;
+  gridMode: string;
+  currentPage: number;
+  totalPages: number;
+  pageSize: number;
 }
 
 export class OpticalSender {
   private file: File | null = null;
-  private packets: ProtocolPacket[] = [];
-  private currentFrameIndex: number = 0;
+  private packed: PackedOpticalFile | null = null;
+  private encoder: LTEncoder | null = null;
+  private sessionId: number = 0;
+  private payloadFnv: number = 0;
+  private k: number = 0;
+  private blockLen: number = 0;
+  private frameBytes: number = DEFAULT_FRAME_BYTES;
+
+  private currentSeq: number = 0;
   private loopCount: number = 0;
   private state: SenderState = 'IDLE';
-  private fps: number = 60; // 60 FPS Turbo stream (matching Decimen)
+  private fps: number = 60; // 60 FPS Decimen Turbo
   private timerId: number | null = null;
   private animFrameId: number | null = null;
   private lastTickTime: number = 0;
   private canvas: HTMLCanvasElement | null = null;
   private gridContainer: HTMLElement | null = null;
-  private transferId: string = '';
   private isPairingMode: boolean = false;
-  private preRenderedCanvases: Map<number, HTMLCanvasElement> = new Map();
 
+  private preRenderedCanvases: Map<number, HTMLCanvasElement> = new Map();
   private onStateChangeCb?: (state: SenderState) => void;
   private onFrameChangeCb?: (info: FrameInfo) => void;
 
   constructor(options?: {
     canvas?: HTMLCanvasElement;
     fps?: number;
-    gridMode?: GridMode;
+    frameBytes?: number;
     onStateChange?: (state: SenderState) => void;
     onFrameChange?: (info: FrameInfo) => void;
   }) {
     if (options?.fps) this.fps = options.fps;
+    if (options?.frameBytes) this.frameBytes = options.frameBytes;
     if (options?.canvas) this.canvas = options.canvas;
     this.onStateChangeCb = options?.onStateChange;
     this.onFrameChangeCb = options?.onFrameChange;
@@ -69,7 +84,6 @@ export class OpticalSender {
 
   public attachGridContainer(container: HTMLElement) {
     this.gridContainer = container;
-    // Find or create canvas inside container if needed
     let canvas = container.querySelector('canvas');
     if (!canvas) {
       canvas = document.createElement('canvas');
@@ -97,11 +111,12 @@ export class OpticalSender {
 
   public async loadFile(
     file: File,
-    chunkSize: number = DEFAULT_CHUNK_SIZE
+    frameBytes: number = this.frameBytes
   ): Promise<void> {
     this.stop();
     this.file = file;
-    this.currentFrameIndex = 0;
+    this.frameBytes = frameBytes;
+    this.currentSeq = 0;
     this.loopCount = 0;
     this.isPairingMode = false;
     this.preRenderedCanvases.clear();
@@ -109,15 +124,20 @@ export class OpticalSender {
     const arrayBuffer = await file.arrayBuffer();
     const uint8 = new Uint8Array(arrayBuffer);
 
-    this.packets = createTransferPackets(uint8, file.name, file.type || 'application/octet-stream', chunkSize);
-    this.transferId = this.packets.length > 0 ? this.packets[0].transfer_id : '';
+    this.packed = await packFile(file.name, file.type || 'application/octet-stream', uint8);
+    this.blockLen = blockLength(this.frameBytes);
+    this.sessionId = (Math.random() * 0xffff) & 0xffff;
+    this.payloadFnv = fnv1a(this.packed.container);
+    this.encoder = new LTEncoder(this.packed.container, this.blockLen, this.sessionId);
+    this.k = this.encoder.k;
+
     this.setState('LOADED');
     await this.renderCurrentFrame();
     this.startBackgroundPreRendering();
   }
 
   public start() {
-    if (this.packets.length === 0) return;
+    if (!this.encoder || this.k === 0) return;
     if (this.state === 'TRANSMITTING') return;
     this.setState('TRANSMITTING');
     this.startLoop();
@@ -137,10 +157,10 @@ export class OpticalSender {
 
   public stop() {
     this.stopLoop();
-    this.currentFrameIndex = 0;
+    this.currentSeq = 0;
     this.loopCount = 0;
     this.isPairingMode = false;
-    if (this.packets.length > 0) {
+    if (this.encoder && this.k > 0) {
       this.setState('STOPPED');
       this.renderCurrentFrame();
     } else {
@@ -149,23 +169,26 @@ export class OpticalSender {
   }
 
   public nextFrame() {
-    if (this.packets.length === 0) return;
-    const total = this.packets.length;
-    this.currentFrameIndex = (this.currentFrameIndex + 1) % total;
-    if (this.currentFrameIndex === 0) this.loopCount++;
+    if (!this.encoder || this.k === 0) return;
+    const cycle = cycleLength(this.k);
+    this.currentSeq++;
+    if (this.currentSeq % cycle === 0) {
+      this.loopCount++;
+    }
     this.renderCurrentFrame();
   }
 
   public prevFrame() {
-    if (this.packets.length === 0) return;
-    const total = this.packets.length;
-    this.currentFrameIndex = (this.currentFrameIndex - 1 + total) % total;
+    if (!this.encoder || this.k === 0) return;
+    if (this.currentSeq > 0) {
+      this.currentSeq--;
+    }
     this.renderCurrentFrame();
   }
 
   public seekFrame(index: number) {
-    if (index >= 0 && index < this.packets.length) {
-      this.currentFrameIndex = index;
+    if (this.encoder && index >= 0) {
+      this.currentSeq = index;
       this.renderCurrentFrame();
     }
   }
@@ -185,54 +208,54 @@ export class OpticalSender {
 
   public getFps(): number { return this.fps; }
 
+  public setFrameBytes(bytes: number) {
+    this.frameBytes = bytes;
+    if (this.file) {
+      this.loadFile(this.file, bytes);
+    }
+  }
+
+  public getFrameBytes(): number { return this.frameBytes; }
   public getPageSize(): number { return 1; }
-
-  public getTotalPages(): number {
-    return Math.max(1, this.packets.length);
-  }
-
-  public getCurrentPage(): number { return this.currentFrameIndex; }
-
-  public setGridMode(_mode: GridMode) {
-    this.notifyFrameChange();
-  }
-
-  public getGridMode(): GridMode { return '1x1'; }
-
+  public getTotalPages(): number { return this.k; }
+  public getCurrentPage(): number { return this.currentSeq % Math.max(1, this.k); }
+  public setGridMode(_mode: any) { this.notifyFrameChange(); }
+  public getGridMode(): string { return '1x1'; }
   public setCustomSlotCount(_count: number) {}
   public getCustomSlotCount(): number { return 1; }
-
   public setPageHoldSeconds(sec: number) {
     if (sec > 0) this.setFps(Math.round(1 / sec));
   }
-
   public getPageHoldSeconds(): number { return Number((1 / this.fps).toFixed(2)); }
-
   public getState(): SenderState { return this.state; }
 
   public getFrameInfo(): FrameInfo {
-    const total = this.packets.length;
-    const packet = this.packets[this.currentFrameIndex] || null;
-    const frameType: PacketType = packet?.type || 'TRANSFER_START';
+    const cycle = Math.max(1, cycleLength(this.k));
+    const posInCycle = this.k > 0 ? this.currentSeq % cycle : 0;
+    const isRepair = this.k > 0 && posInCycle >= this.k;
 
     return {
-      frameIndex: this.currentFrameIndex,
-      totalFrames: total,
+      frameIndex: this.currentSeq,
+      totalFrames: this.k,
+      cycleFrames: cycle,
       loopCount: this.loopCount,
-      frameType,
-      transferId: this.transferId,
+      sessionId: this.sessionId,
       fileName: this.file?.name || '',
-      fileExt: this.file ? this.file.name.split('.').pop() || '' : '',
+      fileExt: this.file ? getFileExtension(this.file.name) : '',
       fileSize: this.file?.size || 0,
+      transmittedSize: this.packed?.transmittedSize || 0,
+      compression: this.packed?.compression || 'none',
       fps: this.fps,
-      packet,
-      gridMode: '1x1',
-      currentPage: this.currentFrameIndex,
-      totalPages: total,
-      pageSize: 1,
+      frameBytes: this.frameBytes,
+      seq: this.currentSeq,
+      isRepairFrame: isRepair,
       activeSlotsCount: 1,
       emptySlotsCount: 0,
-      pageHoldSeconds: this.getPageHoldSeconds()
+      pageHoldSeconds: this.getPageHoldSeconds(),
+      gridMode: '1x1',
+      currentPage: this.currentSeq % Math.max(1, this.k),
+      totalPages: this.k,
+      pageSize: 1,
     };
   }
 
@@ -248,7 +271,6 @@ export class OpticalSender {
         const elapsed = now - this.lastTickTime;
 
         if (elapsed >= frameInterval) {
-          // Adjust lastTickTime to preserve fractional remainder to prevent cumulative clock drift
           this.lastTickTime = now - (elapsed % frameInterval);
           this.nextFrame();
         }
@@ -260,7 +282,6 @@ export class OpticalSender {
 
       this.animFrameId = window.requestAnimationFrame(loop);
     } else {
-      // Fallback for tests / non-browser environments
       const intervalMs = Math.max(1, Math.round(1000 / this.fps));
       const setTimer = typeof window !== 'undefined' ? window.setInterval.bind(window) : setInterval;
       this.timerId = setTimer(() => { this.nextFrame(); }, intervalMs) as any;
@@ -278,92 +299,137 @@ export class OpticalSender {
     }
   }
 
+  private renderQrDataToCanvas(bytes: Uint8Array, targetCanvas: HTMLCanvasElement) {
+    // Pinned mask pattern 4 for 4x fast generation
+    const qr = QRCode.create([{ data: bytes, mode: 'byte' } as unknown as QRCode.QRCodeSegment], {
+      errorCorrectionLevel: 'L',
+      maskPattern: 4,
+    });
+
+    const modCount = qr.modules.size;
+    const margin = 4;
+    const size = modCount + 2 * margin;
+
+    if (typeof document !== 'undefined') {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = size;
+      offscreen.height = size;
+      const offCtx = offscreen.getContext('2d')!;
+      const imgData = offCtx.createImageData(size, size);
+      const data32 = new Uint32Array(imgData.data.buffer);
+      data32.fill(0xffffffff); // White background
+
+      const BLACK = 0xff000000;
+      for (let y = 0; y < modCount; y++) {
+        const row = (y + margin) * size + margin;
+        const src = y * modCount;
+        for (let x = 0; x < modCount; x++) {
+          if (qr.modules.data[src + x]) {
+            data32[row + x] = BLACK;
+          }
+        }
+      }
+      offCtx.putImageData(imgData, 0, 0);
+
+      targetCanvas.width = 440;
+      targetCanvas.height = 440;
+      const ctx = targetCanvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(offscreen, 0, 0, 440, 440);
+      targetCanvas.style.display = 'block';
+    }
+  }
+
   private async renderCurrentFrame(): Promise<void> {
     if (this.isPairingMode) {
       this.notifyFrameChange();
       return;
     }
 
-    if (this.packets.length === 0 || !this.canvas) {
+    if (!this.encoder || !this.packed || !this.canvas || this.k === 0) {
       this.notifyFrameChange();
       return;
     }
 
-    const packet = this.packets[this.currentFrameIndex];
-    if (!packet) return;
-
-    // Fast-path: If pre-rendered canvas exists, blit immediately with zero QR compute lag
-    const cached = this.preRenderedCanvases.get(this.currentFrameIndex);
+    // Check pre-render cache
+    const cacheKey = this.currentSeq % Math.max(1, cycleLength(this.k));
+    const cached = this.preRenderedCanvases.get(cacheKey);
     if (cached) {
       const ctx = this.canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(cached, 0, 0, this.canvas.width, this.canvas.height);
       }
       this.canvas.style.display = 'block';
-    } else {
-      const qrData = serializePacket(packet);
-      try {
-        await QRCode.toCanvas(this.canvas, qrData, {
-          errorCorrectionLevel: 'M',
-          margin: 0,
-          width: 440,
-          color: { dark: '#000000', light: '#ffffff' }
-        });
-        this.canvas.style.display = 'block';
+      this.notifyFrameChange();
+      return;
+    }
 
-        // Cache offscreen copy for 60 FPS repeat playback
-        if (typeof document !== 'undefined') {
-          const offscreen = document.createElement('canvas');
-          offscreen.width = this.canvas.width || 440;
-          offscreen.height = this.canvas.height || 440;
-          const offCtx = offscreen.getContext('2d');
-          if (offCtx) {
-            offCtx.drawImage(this.canvas, 0, 0);
-            this.preRenderedCanvases.set(this.currentFrameIndex, offscreen);
-          }
-        }
-      } catch (err) {
-        console.error('[Sender] QR render error:', err);
+    const block = this.encoder.encode(this.currentSeq);
+    const header: FrameHeader = {
+      sessionId: this.sessionId,
+      seq: this.currentSeq,
+      k: this.k,
+      blockLen: this.blockLen,
+      totalLen: this.packed.container.length,
+      payloadFnv: this.payloadFnv,
+      flags: 0,
+    };
+
+    const wireBytes = packFrame(header, block);
+
+    try {
+      this.renderQrDataToCanvas(wireBytes, this.canvas);
+
+      // Cache for repeat loops
+      if (typeof document !== 'undefined') {
+        const off = document.createElement('canvas');
+        off.width = 440;
+        off.height = 440;
+        const octx = off.getContext('2d')!;
+        octx.drawImage(this.canvas, 0, 0);
+        this.preRenderedCanvases.set(cacheKey, off);
       }
+    } catch (err) {
+      console.error('[Sender] QR render error:', err);
     }
 
     this.notifyFrameChange();
   }
 
   private startBackgroundPreRendering() {
-    if (typeof document === 'undefined' || this.packets.length === 0) return;
+    if (typeof document === 'undefined' || !this.encoder || !this.packed) return;
 
+    const totalToPreRender = Math.min(this.k, 80); // Pre-render initial systematic sweep
     let idx = 0;
-    const total = this.packets.length;
+    const curSession = this.sessionId;
 
     const renderBatch = () => {
-      if (this.packets.length !== total) return; // File replaced
+      if (this.sessionId !== curSession || !this.encoder || !this.packed) return;
 
-      const batchSize = 10;
-      const end = Math.min(idx + batchSize, total);
+      const batchSize = 6;
+      const end = Math.min(idx + batchSize, totalToPreRender);
 
       for (; idx < end; idx++) {
-        const i = idx;
-        if (this.preRenderedCanvases.has(i)) continue;
-        const packet = this.packets[i];
-        if (!packet) continue;
+        const s = idx;
+        if (this.preRenderedCanvases.has(s)) continue;
 
+        const block = this.encoder.encode(s);
+        const header: FrameHeader = {
+          sessionId: this.sessionId,
+          seq: s,
+          k: this.k,
+          blockLen: this.blockLen,
+          totalLen: this.packed.container.length,
+          payloadFnv: this.payloadFnv,
+          flags: 0,
+        };
+        const wireBytes = packFrame(header, block);
         const offscreen = document.createElement('canvas');
-        offscreen.width = 440;
-        offscreen.height = 440;
-        const qrData = serializePacket(packet);
-
-        QRCode.toCanvas(offscreen, qrData, {
-          errorCorrectionLevel: 'M',
-          margin: 0,
-          width: 440,
-          color: { dark: '#000000', light: '#ffffff' }
-        }).then(() => {
-          this.preRenderedCanvases.set(i, offscreen);
-        }).catch(() => {});
+        this.renderQrDataToCanvas(wireBytes, offscreen);
+        this.preRenderedCanvases.set(s, offscreen);
       }
 
-      if (idx < total) {
+      if (idx < totalToPreRender) {
         if (typeof requestIdleCallback !== 'undefined') {
           requestIdleCallback(renderBatch);
         } else {
@@ -379,29 +445,33 @@ export class OpticalSender {
     }
   }
 
-  public getPairingPacket(): ProtocolPacket {
-    if (!this.transferId) {
-      this.transferId = Math.random().toString(36).substring(2, 10);
-    }
-    return createPairingPacket(this.transferId, 'LumaAir', '1x1', 1);
-  }
-
   public async renderPairingQr(): Promise<void> {
     this.stop();
     this.isPairingMode = true;
-    const packet = this.getPairingPacket();
-    const qrData = serializePacket(packet);
+
+    // Pairing / alignment beacon: sends a self-describing 0-byte beacon block with session ID
+    if (!this.sessionId) {
+      this.sessionId = (Math.random() * 0xffff) & 0xffff;
+    }
+    const beaconBlock = new Uint8Array(16);
+    beaconBlock.set(new TextEncoder().encode('LumaAir'));
+    const header: FrameHeader = {
+      sessionId: this.sessionId,
+      seq: 0,
+      k: 1,
+      blockLen: 16,
+      totalLen: 16,
+      payloadFnv: fnv1a(beaconBlock),
+      flags: 0,
+    };
+    const wireBytes = packFrame(header, beaconBlock);
 
     if (this.canvas) {
       try {
-        await QRCode.toCanvas(this.canvas, qrData, {
-          errorCorrectionLevel: 'H',
-          margin: 0,
-          width: 440,
-          color: { dark: '#000000', light: '#ffffff' }
-        });
-        this.canvas.style.display = 'block';
-      } catch (err) { console.error('[Sender] Pairing QR render error:', err); }
+        this.renderQrDataToCanvas(wireBytes, this.canvas);
+      } catch (err) {
+        console.error('[Sender] Beacon render error:', err);
+      }
     }
 
     this.setState('PAIRING');
