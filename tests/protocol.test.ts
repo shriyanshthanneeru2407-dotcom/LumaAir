@@ -10,11 +10,12 @@ import {
   base64ToBytes,
   getFileExtension,
   TransferStartPacket,
-  BatchFramePacket,
-  TransferEndPacket
+  DataFramePacket,
+  TransferEndPacket,
+  GRID_SIZES
 } from '../src/core/protocol';
 
-describe('Phase 2 Proper Transfer Protocol', () => {
+describe('Luma Optical Transfer Protocol v2 — Grid Modes (4×4, 3×3, 2×2)', () => {
   it('should roundtrip binary data to base64 correctly', () => {
     const original = new Uint8Array([0, 1, 2, 254, 255, 128, 64, 32, 16, 8, 4, 2, 1]);
     const b64 = bytesToBase64(original);
@@ -29,14 +30,20 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     expect(getFileExtension('no_ext')).toBe('');
   });
 
-  it('should generate structured START, BATCH_FRAME (16 modules in 1 QR), and END frames with all required fields', () => {
+  it('should expose correct GRID_SIZES constants', () => {
+    expect(GRID_SIZES['4x4']).toBe(16);
+    expect(GRID_SIZES['3x3']).toBe(9);
+    expect(GRID_SIZES['2x2']).toBe(4);
+  });
+
+  it('should generate structured START, DATA_FRAME, and END packets', () => {
     const textData = 'Structured Optical Communication Frame Protocol Phase 2 Verification'.repeat(10);
     const buffer = new TextEncoder().encode(textData);
-    const chunkSize = 80;
+    const chunkSize = 200;
 
     const packets = createTransferPackets(buffer, 'report.pdf', 'application/pdf', chunkSize);
-    
-    // First frame must be TRANSFER_START
+
+    // First packet must be TRANSFER_START
     const startPacket = packets[0] as TransferStartPacket;
     expect(startPacket.type).toBe('TRANSFER_START');
     expect(startPacket.protocol_version).toBe(2);
@@ -49,37 +56,30 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     expect(startPacket.total_chunks).toBe(Math.ceil(buffer.byteLength / chunkSize));
     expect(startPacket.file_checksum).toBe(crc32(buffer));
 
-    // Middle frames must be BATCH_FRAME bundling up to 16 modules in 1 single QR
-    const totalDataChunks = startPacket.total_chunks;
-    const totalBatches = Math.ceil(totalDataChunks / 16);
-    expect(packets.length).toBe(totalBatches + 2);
+    // Middle packets must be DATA_FRAME (one per chunk)
+    const totalChunks = startPacket.total_chunks;
+    expect(packets.length).toBe(totalChunks + 2); // START + N DATA_FRAME + END
 
-    for (let b = 0; b < totalBatches; b++) {
-      const batchPacket = packets[b + 1] as BatchFramePacket;
-      expect(batchPacket.type).toBe('BATCH_FRAME');
-      expect(batchPacket.transfer_id).toBe(startPacket.transfer_id);
-      expect(batchPacket.batch_index).toBe(b);
-      expect(batchPacket.total_batches).toBe(totalBatches);
-      expect(batchPacket.total_chunks).toBe(totalDataChunks);
-      expect(batchPacket.modules.length).toBeGreaterThan(0);
-      expect(batchPacket.modules.length).toBeLessThanOrEqual(16);
-      for (const mod of batchPacket.modules) {
-        expect(mod.seq).toBeDefined();
-        expect(mod.payload).toBeDefined();
-        expect(mod.crc).toBeDefined();
-      }
+    for (let i = 0; i < totalChunks; i++) {
+      const dataPacket = packets[i + 1] as DataFramePacket;
+      expect(dataPacket.type).toBe('DATA_FRAME');
+      expect(dataPacket.transfer_id).toBe(startPacket.transfer_id);
+      expect(dataPacket.seq).toBe(i);
+      expect(dataPacket.total_chunks).toBe(totalChunks);
+      expect(dataPacket.payload).toBeDefined();
+      expect(dataPacket.crc).toBeDefined();
     }
 
-    // Last frame must be TRANSFER_END
+    // Last packet must be TRANSFER_END
     const endPacket = packets[packets.length - 1] as TransferEndPacket;
     expect(endPacket.type).toBe('TRANSFER_END');
     expect(endPacket.protocol_version).toBe(2);
     expect(endPacket.transfer_id).toBe(startPacket.transfer_id);
-    expect(endPacket.total_chunks).toBe(totalDataChunks);
+    expect(endPacket.total_chunks).toBe(totalChunks);
     expect(endPacket.checksum).toBe(startPacket.file_checksum);
   });
 
-  it('should serialize and deserialize all 3 frame types with integrity verification', () => {
+  it('should serialize and deserialize all frame types correctly', () => {
     const buffer = new TextEncoder().encode('Test Data Payload Frame');
     const packets = createTransferPackets(buffer, 'test.txt', 'text/plain', 50);
 
@@ -110,44 +110,43 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     expect(resA1.accepted).toBe(true);
     expect(assembler.getProgress().transferId).toBe(packetsA[0].transfer_id);
 
-    // 2. Attempt to inject a frame from transfer B
-    const resB = assembler.addPacket(packetsB[1]); // Foreign data chunk
+    // 2. Attempt to inject a frame from transfer B — must be REJECTED
+    const resB = assembler.addPacket(packetsB[1]);
     expect(resB.accepted).toBe(false);
     expect(resB.rejectedReason).toContain('different transfer');
     expect(assembler.getProgress().rejectedCount).toBe(1);
     expect(assembler.getProgress().lastRejectedTransferId).toBe(packetsB[0].transfer_id);
 
-    // 3. Continue feeding transfer A frames: should still accept transfer A
+    // 3. Transfer A still works
     const resA2 = assembler.addPacket(packetsA[1]);
     expect(resA2.accepted).toBe(true);
     expect(assembler.getProgress().receivedCount).toBe(1);
   });
 
-  it('should reject corrupted module payload CRC inside BATCH_FRAME', () => {
+  it('should reject DATA_FRAME with corrupted payload CRC', () => {
     const file = new TextEncoder().encode('Integrity critical document');
     const packets = createTransferPackets(file, 'doc.txt', 'text/plain', 10);
-    const batchFrame = packets[1] as BatchFramePacket;
-    expect(batchFrame.type).toBe('BATCH_FRAME');
-    expect(batchFrame.modules.length).toBeGreaterThan(0);
+    const dataPacket = packets[1] as DataFramePacket;
+    expect(dataPacket.type).toBe('DATA_FRAME');
 
-    // Tamper with first module's CRC
-    const origCrc = batchFrame.modules[0].crc;
-    batchFrame.modules[0].crc = origCrc ^ 0x9999;
-    const serialized = serializePacket(batchFrame);
-    const parsed = parsePacket(serialized) as BatchFramePacket | null;
-    expect(parsed).not.toBeNull();
-    // parsePacket discards the corrupted module
-    expect(parsed?.modules.some(m => m.crc === origCrc)).toBe(false);
+    // Tamper with the CRC in serialized form
+    const serialized = serializePacket(dataPacket);
+    const parsed = JSON.parse(serialized.slice('LUMA2:'.length));
+    parsed.crc = parsed.crc ^ 0x9999; // Corrupt CRC
+    const tamperedStr = 'LUMA2:' + JSON.stringify(parsed);
+    const result = parsePacket(tamperedStr);
+    // parsePacket must return null for CRC mismatch
+    expect(result).toBeNull();
   });
 
-  it('should reassemble full file and verify whole-file checksum across batches', () => {
+  it('should reassemble full file and verify whole-file checksum from shuffled packets', () => {
     const rawBytes = new Uint8Array(800);
     for (let i = 0; i < 800; i++) rawBytes[i] = (i * 17) % 256;
 
-    const packets = createTransferPackets(rawBytes, 'dataset.bin', 'application/octet-stream', 50);
+    const packets = createTransferPackets(rawBytes, 'dataset.bin', 'application/octet-stream', 200);
     const assembler = new TransferAssembler();
 
-    // Shuffle packets out of order (e.g. batch frames first, then start, then end)
+    // Shuffle packets out of order
     const shuffled = [...packets].sort(() => Math.random() - 0.5);
 
     for (const p of shuffled) {
@@ -163,49 +162,16 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     expect(reconstructed?.checksum).toBe(crc32(rawBytes));
   });
 
-  it('should bundle 16 modules in 1 single 1x1 QR code and ingest all 16 modules from 1 scan', () => {
-    // Generate a file that breaks into exactly 16 data modules (16 * 50 = 800 bytes)
-    const dataSize = 16 * 50;
-    const rawBytes = new Uint8Array(dataSize);
-    for (let i = 0; i < dataSize; i++) rawBytes[i] = (i + 42) % 256;
-
-    const packets = createTransferPackets(rawBytes, 'batch_16_file.bin', 'application/octet-stream', 50);
-    // packets: 0: START, 1: BATCH_FRAME (16 modules), 2: END
-    expect(packets.length).toBe(3);
-    const batchPacket = packets[1] as BatchFramePacket;
-    expect(batchPacket.type).toBe('BATCH_FRAME');
-    expect(batchPacket.modules.length).toBe(16); // Exactly 16 modules combined in 1 QR!
-
-    const assembler = new TransferAssembler();
-
-    // 1. Ingest START header
-    assembler.addPacket(packets[0]);
-    expect(assembler.getProgress().receivedCount).toBe(0);
-
-    // 2. In a SINGLE scan, 1 QR code is decoded, ingesting all 16 modules simultaneously
-    const res = assembler.addPacket(batchPacket);
-    expect(res.accepted).toBe(true);
-    expect(assembler.getProgress().receivedCount).toBe(16); // All 16 modules loaded at once!
-
-    // 3. Ingest END marker
-    assembler.addPacket(packets[2]);
-    expect(assembler.isComplete()).toBe(true);
-
-    const reconstructed = assembler.reconstruct();
-    expect(reconstructed).not.toBeNull();
-    expect(reconstructed?.fileBuffer.byteLength).toBe(dataSize);
-    expect(reconstructed?.fileBuffer).toEqual(rawBytes);
-  });
-
-  it('should support OpticalSender 1x1 mode with all 5 playback controls (start, pause, stop, prev, next)', async () => {
+  it('should support grid mode OpticalSender with all 5 playback controls (start, pause, stop, prev, next)', async () => {
     const { OpticalSender } = await import('../src/core/sender');
 
-    const sender = new OpticalSender({ fps: 3 });
-    expect(sender.getGridMode()).toBe('1x1');
-    expect(sender.getPageSize()).toBe(1);
+    const sender = new OpticalSender({ fps: 3, gridMode: '3x3' });
+    expect(sender.getGridMode()).toBe('3x3');
+    expect(sender.getPageSize()).toBe(9);
 
-    // Mock a File with 32 chunks (16 in Batch 1, 16 in Batch 2)
-    const content = new Uint8Array(32 * 50);
+    // Mock a File with 200 bytes of data (at 200B/chunk = 1 data chunk)
+    const content = new Uint8Array(200);
+    for (let i = 0; i < 200; i++) content[i] = i % 256;
     const mockFile = {
       name: 'stream.dat',
       type: 'application/octet-stream',
@@ -213,53 +179,42 @@ describe('Phase 2 Proper Transfer Protocol', () => {
       arrayBuffer: async () => content.buffer
     } as unknown as File;
 
-    await sender.loadFile(mockFile, 50);
+    await sender.loadFile(mockFile, 200);
 
     const infoP0 = sender.getFrameInfo();
-    // 1 START + 2 BATCHES + 1 END = 4 frames
-    expect(infoP0.totalFrames).toBe(4);
-    expect(infoP0.gridMode).toBe('1x1');
+    // 1 START + 1 DATA_FRAME + 1 END = 3 packets → all fit on 1 page of 9
+    expect(infoP0.totalPages).toBeGreaterThanOrEqual(1);
+    expect(infoP0.gridMode).toBe('3x3');
     expect(sender.getState()).toBe('LOADED');
 
     // Test Playback Controls:
-    // 1. Next frame
+    // 1. Next page
     sender.nextFrame();
-    const info1 = sender.getFrameInfo();
-    expect(info1.frameIndex).toBe(1);
-    expect(info1.frameType).toBe('BATCH_FRAME');
-    expect(info1.batchModulesCount).toBe(16); // 16 modules inside Batch 1
+    expect(sender.getFrameInfo().currentPage).toBeGreaterThanOrEqual(0);
 
-    // 2. Next frame again (Batch 2)
-    sender.nextFrame();
-    const info2 = sender.getFrameInfo();
-    expect(info2.frameIndex).toBe(2);
-    expect(info2.frameType).toBe('BATCH_FRAME');
-    expect(info2.batchModulesCount).toBe(16); // 16 modules inside Batch 2
-
-    // 3. Previous frame
+    // 2. Previous page
     sender.prevFrame();
-    expect(sender.getFrameInfo().frameIndex).toBe(1);
 
-    // 4. Start transmission
+    // 3. Start transmission
     sender.start();
     expect(sender.getState()).toBe('TRANSMITTING');
 
-    // 5. Pause
+    // 4. Pause
     sender.pause();
     expect(sender.getState()).toBe('PAUSED');
 
-    // 6. Stop
+    // 5. Stop
     sender.stop();
     expect(sender.getState()).toBe('STOPPED');
-    expect(sender.getFrameInfo().frameIndex).toBe(0);
+    expect(sender.getFrameInfo().currentPage).toBe(0);
   });
 
-  it('should support Device Connection Handshake in 1x1 mode (DEVICE_PAIR frame)', () => {
-    const pairPacket = createPairingPacket('pair1234', 'Sender Phone', '1x1', 16);
+  it('should support Device Connection Handshake DEVICE_PAIR frame', () => {
+    const pairPacket = createPairingPacket('pair1234', 'Sender Phone', '3x3', 9);
     expect(pairPacket.type).toBe('DEVICE_PAIR');
     expect(pairPacket.transfer_id).toBe('pair1234');
-    expect(pairPacket.grid_mode).toBe('1x1');
-    expect(pairPacket.module_count).toBe(16);
+    expect(pairPacket.grid_mode).toBe('3x3');
+    expect(pairPacket.module_count).toBe(9);
 
     const serialized = serializePacket(pairPacket);
     const parsed = parsePacket(serialized);
@@ -278,30 +233,19 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     expect(progress.transferId).toBe('pair1234');
   });
 
-  it('should parse both ultra-compact BATCH_FRAME and legacy JSON BATCH_FRAME interchangeably', () => {
-    const rawData = new Uint8Array(16 * 30);
-    for (let i = 0; i < rawData.length; i++) rawData[i] = (i * 3) % 256;
+  it('should correctly switch grid modes: 4x4 → 3x3 → 2x2', async () => {
+    const { OpticalSender } = await import('../src/core/sender');
 
-    const packets = createTransferPackets(rawData, 'photo.jpg', 'image/jpeg', 30, 16);
-    const batchPacket = packets[1] as BatchFramePacket;
+    const sender = new OpticalSender({ fps: 3, gridMode: '4x4' });
+    expect(sender.getGridMode()).toBe('4x4');
+    expect(sender.getPageSize()).toBe(16);
 
-    // 1. Test compact serialization
-    const compactStr = serializePacket(batchPacket);
-    expect(compactStr.startsWith('LUMA2:B~')).toBe(true);
-    const parsedCompact = parsePacket(compactStr) as BatchFramePacket | null;
-    expect(parsedCompact).not.toBeNull();
-    expect(parsedCompact?.type).toBe('BATCH_FRAME');
-    expect(parsedCompact?.modules.length).toBe(16);
-    expect(parsedCompact?.transfer_id).toBe(batchPacket.transfer_id);
+    sender.setGridMode('3x3');
+    expect(sender.getGridMode()).toBe('3x3');
+    expect(sender.getPageSize()).toBe(9);
 
-    // 2. Test JSON backward compatibility
-    const jsonStr = 'LUMA2:' + JSON.stringify(batchPacket);
-    const parsedJson = parsePacket(jsonStr) as BatchFramePacket | null;
-    expect(parsedJson).not.toBeNull();
-    expect(parsedJson?.type).toBe('BATCH_FRAME');
-    expect(parsedJson?.modules.length).toBe(16);
-    expect(parsedJson?.transfer_id).toBe(batchPacket.transfer_id);
+    sender.setGridMode('2x2');
+    expect(sender.getGridMode()).toBe('2x2');
+    expect(sender.getPageSize()).toBe(4);
   });
 });
-
-

@@ -53,7 +53,7 @@ export class OpticalReceiver {
     this.scanCanvas = document.createElement('canvas');
     this.scanCtx = this.scanCanvas.getContext('2d', { willReadFrequently: true });
 
-    // Initialize native BarcodeDetector if available
+    // Initialize native BarcodeDetector if available (GPU-accelerated, finds all QRs in one frame)
     if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
       try {
         this.barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
@@ -103,7 +103,7 @@ export class OpticalReceiver {
   }
 
   /**
-   * Scan directly from a source canvas (e.g. for loopback simulator or screen capture)
+   * Scan directly from a source canvas (for loopback sandbox)
    */
   public startCanvasScan(sourceCanvas: HTMLCanvasElement) {
     this.stop();
@@ -113,6 +113,7 @@ export class OpticalReceiver {
       const curState = this.state as ReceiverState;
       if (curState === 'COMPLETE' || curState === 'IDLE') return;
 
+      // Try BarcodeDetector first (native, can detect all QRs in grid at once)
       if (this.barcodeDetector) {
         try {
           const barcodes = await this.barcodeDetector.detect(sourceCanvas);
@@ -131,6 +132,7 @@ export class OpticalReceiver {
         } catch {}
       }
 
+      // jsQR fallback
       if (sourceCanvas.width > 0 && sourceCanvas.height > 0) {
         const srcCtx = sourceCanvas.getContext('2d');
         if (srcCtx) {
@@ -138,6 +140,7 @@ export class OpticalReceiver {
           await this.processImageData(imgData);
         }
       }
+
       const postState = this.state as ReceiverState;
       if (postState !== 'COMPLETE' && postState !== 'IDLE') {
         this.scanIntervalId = window.setTimeout(scanStep, 60);
@@ -231,7 +234,7 @@ export class OpticalReceiver {
     const vh = this.videoElement.videoHeight;
     if (vw === 0 || vh === 0) return;
 
-    // Scan native BarcodeDetector if supported
+    // Primary: BarcodeDetector (native, GPU-accelerated — detects all QRs in one call)
     if (this.barcodeDetector) {
       try {
         const barcodes = await this.barcodeDetector.detect(this.videoElement);
@@ -249,11 +252,11 @@ export class OpticalReceiver {
           return;
         }
       } catch {
-        // Fall back to jsQR
+        // Fall through to jsQR
       }
     }
 
-    // jsQR fallback with high-resolution canvas for sharp QR module decoding
+    // jsQR fallback: draw full frame at reduced resolution then scan quadrants
     const maxDim = 1280;
     let targetW = vw;
     let targetH = vh;
@@ -273,36 +276,76 @@ export class OpticalReceiver {
     await this.processImageData(imgData);
   }
 
+  /**
+   * Multi-QR jsQR scan: tries full frame first, then four quadrants simultaneously.
+   * This handles 2×2, 3×3, and 4×4 grid layouts.
+   */
   private async processImageData(imgData: ImageData) {
-    let detected = 0;
-    // Attempt both normal and inverted scans to handle monitor glare and dark mode
-    const code = jsQR(imgData.data, imgData.width, imgData.height, {
-      inversionAttempts: 'attemptBoth'
-    });
+    const w = imgData.width;
+    const h = imgData.height;
+    let totalDetected = 0;
 
-    if (code && code.data) {
-      const acc = await this.handleRawQrData(code.data);
-      if (acc) detected++;
-    } else if (this.scanCtx && imgData.width >= 300 && imgData.height >= 300) {
-      // Center-crop fallback: focus on viewfinder target area where user points phone
-      const cropW = Math.floor(imgData.width * 0.7);
-      const cropH = Math.floor(imgData.height * 0.7);
-      const cropX = Math.floor((imgData.width - cropW) / 2);
-      const cropY = Math.floor((imgData.height - cropH) / 2);
-      try {
-        const centerImg = this.scanCtx.getImageData(cropX, cropY, cropW, cropH);
-        const centerCode = jsQR(centerImg.data, cropW, cropH, {
-          inversionAttempts: 'attemptBoth'
-        });
-        if (centerCode && centerCode.data) {
-          const acc = await this.handleRawQrData(centerCode.data);
-          if (acc) detected++;
-        }
-      } catch {}
+    // 1. Full-frame scan (catches any QR that fits fully in frame)
+    const fullCode = jsQR(imgData.data, w, h, { inversionAttempts: 'attemptBoth' });
+    if (fullCode?.data) {
+      const acc = await this.handleRawQrData(fullCode.data);
+      if (acc) totalDetected++;
     }
 
-    if (detected > 1 && this.callbacks.onBatchScanned) {
-      this.callbacks.onBatchScanned(detected, detected);
+    // 2. Quadrant scans in parallel — covers 4 sectors for 2×2 and larger grids
+    if (this.scanCtx && w >= 200 && h >= 200) {
+      const halfW = Math.floor(w / 2);
+      const halfH = Math.floor(h / 2);
+      const quadrants = [
+        { x: 0, y: 0, qw: halfW, qh: halfH },
+        { x: halfW, y: 0, qw: w - halfW, qh: halfH },
+        { x: 0, y: halfH, qw: halfW, qh: h - halfH },
+        { x: halfW, y: halfH, qw: w - halfW, qh: h - halfH },
+      ];
+
+      const quadResults = await Promise.all(
+        quadrants.map(async ({ x, y, qw, qh }) => {
+          try {
+            const quadImg = this.scanCtx!.getImageData(x, y, qw, qh);
+            const code = jsQR(quadImg.data, qw, qh, { inversionAttempts: 'attemptBoth' });
+            if (code?.data) {
+              return this.handleRawQrData(code.data);
+            }
+          } catch { /* ignore */ }
+          return false;
+        })
+      );
+      for (const acc of quadResults) {
+        if (acc) totalDetected++;
+      }
+
+      // 3. For 3×3 and 4×4 grids: also scan thirds of the frame width
+      // This catches QRs in middle columns that the quadrant splits miss
+      if (w >= 600 && h >= 400) {
+        const thirdW = Math.floor(w / 3);
+        const thirds = [
+          { x: 0, y: 0, qw: thirdW, qh: h },
+          { x: thirdW, y: 0, qw: thirdW, qh: h },
+          { x: thirdW * 2, y: 0, qw: w - thirdW * 2, qh: h },
+        ];
+        const thirdResults = await Promise.all(
+          thirds.map(async ({ x, y, qw, qh }) => {
+            try {
+              const strip = this.scanCtx!.getImageData(x, y, qw, qh);
+              const code = jsQR(strip.data, qw, qh, { inversionAttempts: 'attemptBoth' });
+              if (code?.data) return this.handleRawQrData(code.data);
+            } catch {}
+            return false;
+          })
+        );
+        for (const acc of thirdResults) {
+          if (acc) totalDetected++;
+        }
+      }
+    }
+
+    if (totalDetected > 1 && this.callbacks.onBatchScanned) {
+      this.callbacks.onBatchScanned(totalDetected, totalDetected);
     }
   }
 
@@ -310,8 +353,8 @@ export class OpticalReceiver {
     const packet = parsePacket(rawData);
     if (!packet) return false;
 
-    const batchIdx = (packet as any).batch_index ?? (packet as any).seq ?? 0;
-    const frameKey = `${packet.transfer_id}_${packet.type}_${batchIdx}`;
+    const seqKey = (packet as any).seq ?? (packet as any).batch_index ?? 0;
+    const frameKey = `${packet.transfer_id}_${packet.type}_${seqKey}`;
     const isConsecutiveDuplicate = this.lastScannedKey === frameKey;
     this.lastScannedKey = frameKey;
 
@@ -323,12 +366,6 @@ export class OpticalReceiver {
       }
       this.notifyProgress(packet);
       return false;
-    }
-
-    if (packet.type === 'BATCH_FRAME') {
-      if (this.callbacks.onBatchScanned && (result.isNew || !isConsecutiveDuplicate)) {
-        this.callbacks.onBatchScanned(packet.modules.length, 1);
-      }
     }
 
     if (packet.type === 'DEVICE_PAIR') {
@@ -372,9 +409,7 @@ export class OpticalReceiver {
       try {
         const text = new TextDecoder('utf-8', { fatal: true }).decode(reconstructed.fileBuffer);
         textPreview = text.length > 500 ? text.substring(0, 500) + '...' : text;
-      } catch {
-        // Binary file, no text preview
-      }
+      } catch { /* Binary file, no text preview */ }
     }
 
     this.reconstructedFile = {
@@ -400,9 +435,7 @@ export class OpticalReceiver {
 
   private setState(state: ReceiverState, detail?: string) {
     this.state = state;
-    if (this.callbacks.onStateChange) {
-      this.callbacks.onStateChange(state, detail);
-    }
+    if (this.callbacks.onStateChange) this.callbacks.onStateChange(state, detail);
   }
 
   private notifyProgress(latestPacket: ProtocolPacket | null) {

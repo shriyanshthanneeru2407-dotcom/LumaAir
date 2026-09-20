@@ -1,7 +1,7 @@
 import confetti from 'canvas-confetti';
 import { OpticalSender, SenderState, FrameInfo } from './core/sender';
 import { OpticalReceiver, ReceiverState, ReconstructedFile } from './core/receiver';
-import { TransferProgress, ProtocolPacket } from './core/protocol';
+import { TransferProgress, ProtocolPacket, GridMode } from './core/protocol';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -35,7 +35,7 @@ navTabs.forEach(tab => {
 });
 
 // ================= SENDER CONTROLLER =================
-const senderCanvas = document.getElementById('sender-canvas') as HTMLCanvasElement;
+const qrGridMatrix = document.getElementById('qr-grid-matrix') as HTMLDivElement;
 const fileDropzone = document.getElementById('file-dropzone') as HTMLDivElement;
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
 const senderFileInfo = document.getElementById('sender-file-info') as HTMLDivElement;
@@ -84,13 +84,18 @@ const btnFsNext = document.getElementById('btn-fs-next') as HTMLButtonElement | 
 const fsPageIndicator = document.getElementById('fs-page-indicator') as HTMLSpanElement | null;
 
 let currentLoadedFile: File | null = null;
+let currentGridMode: GridMode = '3x3';
 
 const sender = new OpticalSender({
-  canvas: senderCanvas,
   fps: 3,
+  gridMode: currentGridMode,
   onStateChange: updateSenderStateUI,
   onFrameChange: updateSenderFrameUI
 });
+
+// Attach grid container so sender can build slots into it
+sender.attachGridContainer(qrGridMatrix);
+sender.renderGridSlots();
 
 function updateSenderStateUI(state: SenderState) {
   senderStatusDot.className = 'status-dot';
@@ -115,7 +120,7 @@ function updateSenderStateUI(state: SenderState) {
       btnSenderNext.disabled = true;
       syncFsButtons(true, true, false, true, true);
       senderPlaceholder.classList.add('hidden');
-      if (senderCanvas) senderCanvas.classList.remove('hidden');
+      qrGridMatrix.classList.remove('hidden');
       break;
 
     case 'IDLE':
@@ -178,14 +183,14 @@ function updateSenderStateUI(state: SenderState) {
 
 function updateSenderFrameUI(info: FrameInfo) {
   if (info.totalFrames > 0) {
-    senderFrameIndicator.textContent = `${info.frameIndex + 1} / ${info.totalFrames}`;
+    senderFrameIndicator.textContent = `${info.currentPage + 1} / ${info.totalPages}`;
     if (senderSlotsIndicator) {
-      senderSlotsIndicator.textContent = info.batchModulesCount > 0 ? `${info.batchModulesCount} mods in 1 QR` : '16 mods/QR';
+      senderSlotsIndicator.textContent = `${info.activeSlotsCount} active, ${info.emptySlotsCount} empty`;
     }
-    if (senderPageBadge) senderPageBadge.textContent = `Frame ${info.frameIndex + 1} of ${info.totalFrames}`;
-    if (fsPageIndicator) fsPageIndicator.textContent = `Frame ${info.frameIndex + 1} / ${info.totalFrames}`;
+    if (senderPageBadge) senderPageBadge.textContent = `Page ${info.currentPage + 1} of ${info.totalPages}`;
+    if (fsPageIndicator) fsPageIndicator.textContent = `Page ${info.currentPage + 1} / ${info.totalPages}`;
 
-    const pct = Math.round(((info.frameIndex + 1) / info.totalFrames) * 100);
+    const pct = Math.round(((info.currentPage + 1) / info.totalPages) * 100);
     if (senderFramePct) senderFramePct.textContent = `${pct}%`;
     senderProgressFill.style.width = `${pct}%`;
     senderLoopCounter.textContent = `${info.loopCount}`;
@@ -197,18 +202,15 @@ function updateSenderFrameUI(info: FrameInfo) {
         senderFrameTypeBadge.textContent = `🔗 PAIRING BEACON (Session #${info.transferId})`;
       } else if (info.frameType === 'TRANSFER_START') {
         senderFrameTypeBadge.classList.add('type-start');
-        senderFrameTypeBadge.textContent = '🚀 1×1 QR • TRANSFER_START (Header)';
-      } else if (info.frameType === 'BATCH_FRAME') {
-        senderFrameTypeBadge.classList.add('type-data');
-        senderFrameTypeBadge.textContent = `📦 1×1 QR • BATCH #${info.batchIndex + 1}/${info.totalBatches} (${info.batchModulesCount} Modules Inside)`;
+        senderFrameTypeBadge.textContent = `🚀 ${info.gridMode.toUpperCase()} GRID • TRANSFER_START`;
       } else if (info.frameType === 'DATA_FRAME') {
         senderFrameTypeBadge.classList.add('type-data');
-        const seq = (info.packet as any)?.seq ?? Math.max(0, info.frameIndex - 1);
-        const dataCount = Math.max(1, info.totalFrames - 2);
-        senderFrameTypeBadge.textContent = `📦 1×1 QR • DATA_FRAME (${seq + 1}/${dataCount})`;
+        const pageStart = info.currentPage * info.pageSize;
+        const pageEnd = Math.min(pageStart + info.activeSlotsCount, info.totalFrames * info.pageSize);
+        senderFrameTypeBadge.textContent = `📦 ${info.gridMode.toUpperCase()} GRID • DATA (chunks ${pageStart + 1}–${pageEnd})`;
       } else if (info.frameType === 'TRANSFER_END') {
         senderFrameTypeBadge.classList.add('type-end');
-        senderFrameTypeBadge.textContent = '🏁 1×1 QR • TRANSFER_END (Verify)';
+        senderFrameTypeBadge.textContent = `🏁 ${info.gridMode.toUpperCase()} GRID • TRANSFER_END`;
       } else {
         senderFrameTypeBadge.classList.add('type-idle');
         senderFrameTypeBadge.textContent = 'Ready';
@@ -216,8 +218,8 @@ function updateSenderFrameUI(info: FrameInfo) {
     }
   } else {
     senderFrameIndicator.textContent = '0 / 0';
-    if (senderSlotsIndicator) senderSlotsIndicator.textContent = '16 per QR';
-    if (senderPageBadge) senderPageBadge.textContent = 'Frame 0 / 0';
+    if (senderSlotsIndicator) senderSlotsIndicator.textContent = `${info.pageSize} slots ready`;
+    if (senderPageBadge) senderPageBadge.textContent = 'Page 0 / 0';
     if (senderFramePct) senderFramePct.textContent = '0%';
     senderProgressFill.style.width = '0%';
     senderLoopCounter.textContent = '0';
@@ -264,15 +266,17 @@ async function handleFileSelected(file: File) {
     await sender.loadFile(file, chunkSize);
 
     const info = sender.getFrameInfo();
-    const batchCount = Math.max(1, info.totalFrames - 2);
-    senderFrameCount.textContent = `${batchCount} batch frame(s) (16 modules per 1×1 QR)`;
+    const dataChunks = Math.max(1, info.totalFrames * info.pageSize - 2); // approximate data chunks
+    senderFrameCount.textContent = `${dataChunks} data chunks → ${info.totalPages} pages (${info.gridMode} grid, ${info.pageSize} QRs/page)`;
     if (senderTransferId) senderTransferId.textContent = `#${info.transferId}`;
     if (senderTotalFramesDesc) {
-      senderTotalFramesDesc.textContent = `${info.totalFrames} frames [1 START + ${batchCount} BATCH + 1 END]`;
+      senderTotalFramesDesc.textContent = `${info.totalPages} pages [START page + data pages + END page]`;
     }
 
-    const estSeconds = (info.totalFrames / sender.getFps()).toFixed(1);
-    senderCycleTime.textContent = `~${estSeconds}s / cycle (${sender.getFps()} FPS)`;
+    const estSeconds = (info.totalPages / sender.getFps()).toFixed(1);
+    senderCycleTime.textContent = `~${estSeconds}s / cycle (${sender.getFps()} FPS, ${info.totalPages} pages)`;
+
+    senderPlaceholder.classList.add('hidden');
   } catch (err: any) {
     console.error('Failed to load file:', err);
     showSenderAlert(`Error loading file: ${err.message || err}`, 'error');
@@ -290,6 +294,24 @@ if (btnSenderPair) {
     }
   });
 }
+
+// ================= GRID MODE SELECTOR =================
+const gridModeBtns = document.querySelectorAll<HTMLButtonElement>('.grid-mode-btn');
+gridModeBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const mode = btn.getAttribute('data-mode') as GridMode;
+    if (!mode || mode === currentGridMode) return;
+    currentGridMode = mode;
+    // Update button active state
+    gridModeBtns.forEach(b => b.classList.toggle('active', b === btn));
+    // Tell sender to rebuild grid
+    sender.setGridMode(mode);
+    // Reload file with new mode
+    if (currentLoadedFile) {
+      handleFileSelected(currentLoadedFile);
+    }
+  });
+});
 
 // Window-level drag protection to prevent opening dropped files as browser URLs
 window.addEventListener('dragover', (e) => e.preventDefault());

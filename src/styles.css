@@ -502,8 +502,8 @@ input[type="range"] {
 
 .qr-frame-wrapper {
   position: relative;
-  width: 440px;
-  height: 440px;
+  width: 520px;
+  height: 520px;
   max-width: 100%;
   aspect-ratio: 1;
   background: #ffffff;
@@ -1139,50 +1139,67 @@ input[type="range"] {
   border-radius: 3px;
 }
 
-/* 1x1 Single QR Mode Banner */
-.mode-single-badge-box {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  border-radius: var(--radius-sm);
-  padding: 0.75rem 0.9rem;
+/* Grid Mode Selector Buttons */
+.grid-mode-selector {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.grid-mode-btn {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-}
-
-.mode-single-header {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0.55rem 0.5rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(100, 116, 139, 0.35);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-secondary);
 }
 
-.mode-single-badge {
+.grid-mode-btn:hover {
+  border-color: rgba(56, 189, 248, 0.5);
+  color: var(--text-primary);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.grid-mode-btn.active {
+  border-color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent-cyan);
+}
+
+.grid-mode-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.grid-mode-label {
   font-size: 0.85rem;
   font-weight: 700;
-  color: #ffffff;
-}
-
-.mode-single-pill {
-  font-size: 0.72rem;
-  font-weight: 700;
   font-family: var(--font-mono);
-  color: #04101e;
-  background: var(--accent-cyan);
-  padding: 2px 7px;
-  border-radius: 9999px;
-  letter-spacing: 0.02em;
 }
 
-.mode-single-desc {
-  font-size: 0.76rem;
-  color: var(--text-secondary);
-  line-height: 1.35;
-  margin: 0;
+.grid-mode-sub {
+  font-size: 0.64rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
-.mode-single-desc strong {
-  color: var(--accent-cyan);
+.grid-mode-btn.active .grid-mode-sub {
+  color: rgba(56, 189, 248, 0.7);
+}
+
+/* Empty slot label */
+.qr-slot-empty-label {
+  font-size: 1.2rem;
+  color: #cbd5e1;
+  user-select: none;
 }
 
 /* Frame Bar Header */
@@ -1278,9 +1295,6 @@ input[type="range"] {
   box-sizing: border-box !important;
 }
 
-#qr-wrapper:fullscreen #sender-canvas,
-#qr-wrapper:-webkit-full-screen #sender-canvas,
-#qr-wrapper.is-fullscreen-fallback #sender-canvas,
 #qr-wrapper:fullscreen .qr-grid-matrix,
 #qr-wrapper:-webkit-full-screen .qr-grid-matrix,
 #qr-wrapper.is-fullscreen-fallback .qr-grid-matrix {
