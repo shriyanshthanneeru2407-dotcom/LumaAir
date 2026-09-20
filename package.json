@@ -1,5 +1,12 @@
 {
-  "name": "luma-air",
+  "name": "LumaAir",
+  "displayName": "LumaAir",
+  "description": "Air-Gapped Optical File Transfer Platform via High-Density Dynamic QR Streams",
+  "homepage": "https://luma-air.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shriyanshthanneeru2407-dotcom/LumaAir.git"
+  },
   "private": true,
   "version": "1.0.0",
   "type": "module",
