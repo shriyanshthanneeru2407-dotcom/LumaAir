@@ -1,6 +1,10 @@
-# LumaAir — Air-Gapped Optical File Transfer Platform
+# LumaAir — Air-Gapped Optical File Transfer Platform ⚡
 
-🌐 **Live Link**: [https://luma-air.vercel.app](https://luma-air.vercel.app)
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Deployed-black?logo=vercel)](https://luma-air.vercel.app)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-6-646CFF.svg)](https://vitejs.dev/)
+[![WebAssembly](https://img.shields.io/badge/WebAssembly-ZXing--C%2B%2B-654FF0.svg)](https://github.com/zxing-cpp/zxing-cpp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **LumaAir** is a high-speed, air-gapped cross-device file transfer application that streams binary files visually between screens and cameras using rapidly cycling animated QR code frames.
 
@@ -14,12 +18,17 @@
 
 ---
 
-## 🚀 Live App
+## 🚀 Live Demo
 
-👉 **[https://luma-air.vercel.app](https://luma-air.vercel.app)**
+You can access the live web deployment here:
+**👉 [https://luma-air.vercel.app](https://luma-air.vercel.app)**
 
-GitHub Repository:
-👉 **[https://github.com/shriyanshthanneeru2407-dotcom/LumaAir](https://github.com/shriyanshthanneeru2407-dotcom/LumaAir)**
+---
+
+## 🔗 GitHub Repository
+
+You can view the source code and repository here:
+**👉 [https://github.com/shriyanshthanneeru2407-dotcom/LumaAir](https://github.com/shriyanshthanneeru2407-dotcom/LumaAir)**
 
 ---
 
