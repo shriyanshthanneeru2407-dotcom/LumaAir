@@ -252,6 +252,7 @@ async function handleFileSelected(file: File) {
 
     const frameBytes = parseInt(chunkSizeSelect.value, 10) || DEFAULT_FRAME_BYTES;
     await sender.loadFile(file, frameBytes);
+    sender.start();
 
     const info = sender.getFrameInfo();
     senderFrameCount.textContent = `${info.totalFrames} BLOCKS`;
