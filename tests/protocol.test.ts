@@ -277,5 +277,31 @@ describe('Phase 2 Proper Transfer Protocol', () => {
     expect(progress.isPaired).toBe(true);
     expect(progress.transferId).toBe('pair1234');
   });
+
+  it('should parse both ultra-compact BATCH_FRAME and legacy JSON BATCH_FRAME interchangeably', () => {
+    const rawData = new Uint8Array(16 * 30);
+    for (let i = 0; i < rawData.length; i++) rawData[i] = (i * 3) % 256;
+
+    const packets = createTransferPackets(rawData, 'photo.jpg', 'image/jpeg', 30, 16);
+    const batchPacket = packets[1] as BatchFramePacket;
+
+    // 1. Test compact serialization
+    const compactStr = serializePacket(batchPacket);
+    expect(compactStr.startsWith('LUMA2:B~')).toBe(true);
+    const parsedCompact = parsePacket(compactStr) as BatchFramePacket | null;
+    expect(parsedCompact).not.toBeNull();
+    expect(parsedCompact?.type).toBe('BATCH_FRAME');
+    expect(parsedCompact?.modules.length).toBe(16);
+    expect(parsedCompact?.transfer_id).toBe(batchPacket.transfer_id);
+
+    // 2. Test JSON backward compatibility
+    const jsonStr = 'LUMA2:' + JSON.stringify(batchPacket);
+    const parsedJson = parsePacket(jsonStr) as BatchFramePacket | null;
+    expect(parsedJson).not.toBeNull();
+    expect(parsedJson?.type).toBe('BATCH_FRAME');
+    expect(parsedJson?.modules.length).toBe(16);
+    expect(parsedJson?.transfer_id).toBe(batchPacket.transfer_id);
+  });
 });
+
 

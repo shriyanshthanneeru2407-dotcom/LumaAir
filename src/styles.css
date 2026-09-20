@@ -502,8 +502,8 @@ input[type="range"] {
 
 .qr-frame-wrapper {
   position: relative;
-  width: 380px;
-  height: 380px;
+  width: 440px;
+  height: 440px;
   max-width: 100%;
   aspect-ratio: 1;
   background: #ffffff;
@@ -519,6 +519,9 @@ input[type="range"] {
   width: 100% !important;
   height: 100% !important;
   display: block;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
 }
 
 .qr-placeholder {
@@ -1275,11 +1278,14 @@ input[type="range"] {
   box-sizing: border-box !important;
 }
 
+#qr-wrapper:fullscreen #sender-canvas,
+#qr-wrapper:-webkit-full-screen #sender-canvas,
+#qr-wrapper.is-fullscreen-fallback #sender-canvas,
 #qr-wrapper:fullscreen .qr-grid-matrix,
 #qr-wrapper:-webkit-full-screen .qr-grid-matrix,
 #qr-wrapper.is-fullscreen-fallback .qr-grid-matrix {
-  width: min(84vh, 84vw) !important;
-  height: min(84vh, 84vw) !important;
+  width: min(82vh, 82vw) !important;
+  height: min(82vh, 82vw) !important;
   aspect-ratio: 1 !important;
   background: #ffffff !important;
   border-radius: 16px !important;

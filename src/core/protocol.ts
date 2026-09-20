@@ -6,7 +6,7 @@
 export const PROTOCOL_HEADER = 'LUMA2:';
 export const PROTOCOL_VERSION = 2;
 export const MODULES_PER_BATCH = 16; // 16 chunk modules bundled inside 1 single QR code
-export const DEFAULT_CHUNK_SIZE = 80; // Raw bytes per chunk module (~80B * 16 = 1280B payload)
+export const DEFAULT_CHUNK_SIZE = 30; // Compact bytes per chunk module (~30B * 16 = 480B payload for instant camera scan)
 
 export type PacketType = 'DEVICE_PAIR' | 'TRANSFER_START' | 'BATCH_FRAME' | 'DATA_FRAME' | 'TRANSFER_END';
 
@@ -251,17 +251,75 @@ export function createTransferPackets(
 }
 
 /**
- * Serialize packet into string for QR code embedding
+ * Serialize packet into string for QR code embedding.
+ * BATCH_FRAME uses ultra-compact delimiter encoding to minimize QR dot density
+ * and enable instantaneous decoding on mobile phone cameras.
  */
 export function serializePacket(packet: ProtocolPacket): string {
+  if (packet.type === 'BATCH_FRAME') {
+    // Format: LUMA2:B~<id>~<batch_idx>~<total_batches>~<total_chunks>~<seq>,<crc36>,<payload>~...
+    const modParts = packet.modules.map(m => `${m.seq},${(m.crc >>> 0).toString(36)},${m.payload}`);
+    return `${PROTOCOL_HEADER}B~${packet.transfer_id}~${packet.batch_index}~${packet.total_batches}~${packet.total_chunks}~${modParts.join('~')}`;
+  }
   return PROTOCOL_HEADER + JSON.stringify(packet);
 }
 
 /**
- * Parse and validate QR string into a ProtocolPacket
+ * Parse and validate QR string into a ProtocolPacket.
+ * Supports both ultra-compact BATCH_FRAME format and JSON-based frames.
  */
 export function parsePacket(rawString: string): ProtocolPacket | null {
   if (!rawString || typeof rawString !== 'string') return null;
+
+  // 1. Ultra-compact BATCH_FRAME fast parser
+  if (rawString.startsWith(PROTOCOL_HEADER + 'B~') || rawString.startsWith('B~')) {
+    try {
+      const prefixLen = rawString.startsWith(PROTOCOL_HEADER + 'B~') ? (PROTOCOL_HEADER.length + 2) : 2;
+      const tokens = rawString.slice(prefixLen).split('~');
+      if (tokens.length >= 4) {
+        const transfer_id = tokens[0];
+        const batch_index = parseInt(tokens[1], 10);
+        const total_batches = parseInt(tokens[2], 10);
+        const total_chunks = parseInt(tokens[3], 10);
+        const modTokens = tokens.slice(4);
+
+        const modules: BatchModule[] = [];
+        for (const mStr of modTokens) {
+          if (!mStr) continue;
+          const commaIdx1 = mStr.indexOf(',');
+          const commaIdx2 = mStr.indexOf(',', commaIdx1 + 1);
+          if (commaIdx1 === -1 || commaIdx2 === -1) continue;
+
+          const seq = parseInt(mStr.slice(0, commaIdx1), 10);
+          const crcStr = mStr.slice(commaIdx1 + 1, commaIdx2);
+          const payload = mStr.slice(commaIdx2 + 1);
+          const crc = (parseInt(crcStr, 36) >>> 0);
+
+          if (!isNaN(seq) && payload) {
+            const chunkBytes = base64ToBytes(payload);
+            const computedCrc = crc32(chunkBytes);
+            if (computedCrc === crc) {
+              modules.push({ seq, payload, crc });
+            } else {
+              console.warn(`[Protocol] Module CRC mismatch for seq ${seq}: expected ${crc}, got ${computedCrc}`);
+            }
+          }
+        }
+
+        return {
+          type: 'BATCH_FRAME',
+          protocol_version: PROTOCOL_VERSION,
+          transfer_id,
+          batch_index,
+          total_batches,
+          total_chunks,
+          modules
+        };
+      }
+    } catch (e) {
+      console.warn('[Protocol] Failed to parse compact BATCH_FRAME:', e);
+    }
+  }
 
   let jsonStr = rawString;
   if (rawString.startsWith(PROTOCOL_HEADER)) {

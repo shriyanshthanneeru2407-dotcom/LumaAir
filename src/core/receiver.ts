@@ -253,8 +253,8 @@ export class OpticalReceiver {
       }
     }
 
-    // jsQR fallback with scaled canvas for fast CPU decoding
-    const maxDim = 640;
+    // jsQR fallback with high-resolution canvas for sharp QR module decoding
+    const maxDim = 1280;
     let targetW = vw;
     let targetH = vh;
     if (targetW > maxDim || targetH > maxDim) {
@@ -275,36 +275,30 @@ export class OpticalReceiver {
 
   private async processImageData(imgData: ImageData) {
     let detected = 0;
+    // Attempt both normal and inverted scans to handle monitor glare and dark mode
     const code = jsQR(imgData.data, imgData.width, imgData.height, {
-      inversionAttempts: 'dontInvert'
+      inversionAttempts: 'attemptBoth'
     });
 
     if (code && code.data) {
       const acc = await this.handleRawQrData(code.data);
       if (acc) detected++;
-    }
-
-    // Quadrant scanning for multi-QR fallback when BarcodeDetector is unavailable
-    if (this.scanCtx && imgData.width >= 200 && imgData.height >= 200) {
-      const halfW = Math.floor(imgData.width / 2);
-      const halfH = Math.floor(imgData.height / 2);
-      const quadrants = [
-        { x: 0, y: 0 },
-        { x: halfW, y: 0 },
-        { x: 0, y: halfH },
-        { x: halfW, y: halfH }
-      ];
-
-      for (const q of quadrants) {
-        try {
-          const qImg = this.scanCtx.getImageData(q.x, q.y, halfW, halfH);
-          const qCode = jsQR(qImg.data, halfW, halfH, { inversionAttempts: 'dontInvert' });
-          if (qCode && qCode.data && qCode.data !== code?.data) {
-            const acc = await this.handleRawQrData(qCode.data);
-            if (acc) detected++;
-          }
-        } catch {}
-      }
+    } else if (this.scanCtx && imgData.width >= 300 && imgData.height >= 300) {
+      // Center-crop fallback: focus on viewfinder target area where user points phone
+      const cropW = Math.floor(imgData.width * 0.7);
+      const cropH = Math.floor(imgData.height * 0.7);
+      const cropX = Math.floor((imgData.width - cropW) / 2);
+      const cropY = Math.floor((imgData.height - cropH) / 2);
+      try {
+        const centerImg = this.scanCtx.getImageData(cropX, cropY, cropW, cropH);
+        const centerCode = jsQR(centerImg.data, cropW, cropH, {
+          inversionAttempts: 'attemptBoth'
+        });
+        if (centerCode && centerCode.data) {
+          const acc = await this.handleRawQrData(centerCode.data);
+          if (acc) detected++;
+        }
+      } catch {}
     }
 
     if (detected > 1 && this.callbacks.onBatchScanned) {

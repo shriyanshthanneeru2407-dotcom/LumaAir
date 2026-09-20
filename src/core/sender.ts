@@ -277,11 +277,14 @@ export class OpticalSender {
     const currentPacket = this.packets[this.currentFrameIndex];
     if (currentPacket) {
       const qrData = serializePacket(currentPacket);
+      // Use Level 'L' (Low 7%) for BATCH_FRAME to maximize dot thickness and scannability,
+      // and Level 'M' for metadata frames (START, END)
+      const ecLevel = currentPacket.type === 'BATCH_FRAME' ? 'L' : 'M';
       try {
         await QRCode.toCanvas(this.canvas, qrData, {
-          errorCorrectionLevel: 'M',
+          errorCorrectionLevel: ecLevel,
           margin: 2,
-          width: 400,
+          width: 520,
           color: {
             dark: '#000000',
             light: '#ffffff'

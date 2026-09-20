@@ -160,11 +160,11 @@
                 </div>
 
                 <div class="setting-item">
-                  <label for="chunk-size-select">Chunk Density:</label>
+                  <label for="chunk-size-select">Chunk Density (per module):</label>
                   <select id="chunk-size-select" class="form-select">
-                    <option value="150">Low (150 bytes) — Best for blurry/low-res cameras</option>
-                    <option value="220" selected>Standard (220 bytes) — Recommended default</option>
-                    <option value="320">High (320 bytes) — Faster for sharp HD cameras</option>
+                    <option value="20">Ultra Scannable (20B / mod) — Instant scan on all phones</option>
+                    <option value="30" selected>Balanced (30B / mod) — Recommended for 16-in-1 QR</option>
+                    <option value="45">High Throughput (45B / mod) — For sharp 1080p cameras</option>
                   </select>
                 </div>
               </div>
