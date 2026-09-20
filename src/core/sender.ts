@@ -330,7 +330,7 @@ export class OpticalSender {
         }
         try {
           await QRCode.toCanvas(canvas, qrData, {
-            errorCorrectionLevel: ecLevel, margin: 1, width: qrPx,
+            errorCorrectionLevel: ecLevel, margin: 0, width: qrPx,
             color: { dark: '#000000', light: '#ffffff' }
           });
           canvas.style.display = 'block';
