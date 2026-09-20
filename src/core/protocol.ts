@@ -12,6 +12,7 @@ export const MAGIC1 = 0xc3;
 export const WIRE_VERSION = 3;
 export const CRITICAL_FLAGS = 0x0f;
 export const SUPPORTED_FLAGS = 0x00;
+export const FLAG_PAIRING_BEACON = 0x80;
 
 export const DEFAULT_FRAME_BYTES = 1465; // ~V27 QR Code, optimal sweet spot
 export const FRAME_BYTES_OPTIONS = [600, 1000, 1465, 2000, 2953] as const;

@@ -72,6 +72,7 @@ export interface ReceiverCallbacks {
   onStateChange?: (state: ReceiverState, detail?: string) => void;
   onProgress?: (progress: ReceiverProgress, header: FrameHeader | null) => void;
   onDiagnostics?: (diag: ReceiverDiagnostics) => void;
+  onDevicePaired?: (sessionId: number) => void;
   onNoSignal?: (visible: boolean) => void;
   onFileComplete?: (file: ReconstructedFile) => void;
   onError?: (err: Error) => void;
@@ -111,6 +112,7 @@ export class OpticalReceiver {
 
   private decoder: LTDecoder | null = null;
   private streamKey: string = '';
+  private pairedSessionId: number | null = null;
   private startTs: number = 0;
   private lastDecodeTs: number = 0;
 
@@ -269,6 +271,7 @@ export class OpticalReceiver {
   public resetTransfer() {
     this.decoder = null;
     this.streamKey = '';
+    this.pairedSessionId = null;
     this.framesNewCount = 0;
     this.framesDupCount = 0;
     this.regions = [];
@@ -573,6 +576,21 @@ export class OpticalReceiver {
     this.decodeTimes.push(now);
     this.lastDecodeTs = now;
     this.callbacks.onNoSignal?.(false);
+
+    // Check if this is a pairing beacon
+    const isPairingBeacon = (header.flags & 0x80) !== 0 ||
+      (header.totalLen === 16 && block.length === 16 && new TextDecoder().decode(block.slice(0, 7)) === 'LumaAir');
+
+    if (isPairingBeacon) {
+      if (this.pairedSessionId !== header.sessionId) {
+        this.pairedSessionId = header.sessionId;
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try { navigator.vibrate([80, 50, 80]); } catch {}
+        }
+        this.callbacks.onDevicePaired?.(header.sessionId);
+      }
+      return true; // Pairing acknowledged! Keep receiver actively SCANNING for main file stream!
+    }
 
     const identity = streamIdentity(header);
 

@@ -11,6 +11,7 @@ import {
   PackedOpticalFile,
   CompressionMode,
   getFileExtension,
+  FLAG_PAIRING_BEACON,
 } from './protocol';
 
 export type SenderState = 'IDLE' | 'PAIRING' | 'LOADED' | 'TRANSMITTING' | 'PAUSED' | 'STOPPED';
@@ -126,7 +127,9 @@ export class OpticalSender {
 
     this.packed = await packFile(file.name, file.type || 'application/octet-stream', uint8);
     this.blockLen = blockLength(this.frameBytes);
-    this.sessionId = (Math.random() * 0xffff) & 0xffff;
+    if (!this.sessionId) {
+      this.sessionId = (Math.random() * 0xffff) & 0xffff;
+    }
     this.payloadFnv = fnv1a(this.packed.container);
     this.encoder = new LTEncoder(this.packed.container, this.blockLen, this.sessionId);
     this.k = this.encoder.k;
@@ -462,7 +465,7 @@ export class OpticalSender {
       blockLen: 16,
       totalLen: 16,
       payloadFnv: fnv1a(beaconBlock),
-      flags: 0,
+      flags: FLAG_PAIRING_BEACON,
     };
     const wireBytes = packFrame(header, beaconBlock);
 

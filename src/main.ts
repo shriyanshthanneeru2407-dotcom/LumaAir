@@ -278,7 +278,14 @@ if (btnSenderPair) {
     clearSenderAlert();
     try {
       await sender.renderPairingQr();
-      showSenderAlert('Optical Pairing QR displayed. Point receiver camera here to pair!', 'info');
+      const info = sender.getFrameInfo();
+      const hexId = `#${info.sessionId.toString(16).toUpperCase().padStart(4, '0')}`;
+      confetti({
+        particleCount: 50,
+        spread: 65,
+        origin: { y: 0.6 }
+      });
+      showSenderAlert(`Optical Pairing Beacon ${hexId} Active! Point receiver camera here to link.`, 'info');
     } catch (err: any) {
       showSenderAlert(`Pairing error: ${err.message || err}`, 'error');
     }
@@ -636,6 +643,30 @@ const receiver = new OpticalReceiver({
     if (hudProgressBar) {
       hudProgressBar.style.width = `${diag.progressPercent}%`;
     }
+  },
+  onDevicePaired: (sessionId: number) => {
+    const hexId = `#${sessionId.toString(16).toUpperCase().padStart(4, '0')}`;
+    if (recPairingStatus && recPairingText) {
+      recPairingStatus.className = 'badge-pairing-state linked';
+      recPairingText.textContent = `🔗 Paired (${hexId})`;
+    }
+    if (recSessionId) {
+      recSessionId.textContent = `${hexId} (Paired & Locked)`;
+    }
+    if (recProtocolStatus) {
+      recProtocolStatus.textContent = `Paired! Ready for Fountain File Stream`;
+      recProtocolStatus.className = 'info-value font-mono text-neon-green';
+    }
+    if (hudEtaLabel) {
+      hudEtaLabel.textContent = `Paired (${hexId}) · Ready for file`;
+    }
+
+    // Celebratory confetti on receiver device!
+    confetti({
+      particleCount: 60,
+      spread: 70,
+      origin: { y: 0.6 }
+    });
   },
   onNoSignal: (visible: boolean) => {
     if (noSignalToast) {

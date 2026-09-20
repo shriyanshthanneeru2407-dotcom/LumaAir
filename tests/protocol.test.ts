@@ -13,6 +13,7 @@ import {
   getFileExtension,
 } from '../src/core/protocol';
 import { OpticalSender } from '../src/core/sender';
+import { OpticalReceiver } from '../src/core/receiver';
 
 describe('Decimen Optical Protocol (Wire v3) & Fountain Coding', () => {
   it('should correctly extract file extensions', () => {
@@ -167,5 +168,35 @@ describe('Decimen Optical Protocol (Wire v3) & Fountain Coding', () => {
 
     sender.stop();
     expect(sender.getState()).toBe('STOPPED');
+  });
+
+  it('should process pairing beacon and fire onDevicePaired without breaking receiver scan state', async () => {
+    let pairedSession: number | null = null;
+    const receiver = new OpticalReceiver({
+      onDevicePaired: (sid) => {
+        pairedSession = sid;
+      }
+    });
+
+    const beaconBlock = new Uint8Array(16);
+    beaconBlock.set(new TextEncoder().encode('LumaAir'));
+    const sessionId = 0xC104;
+    const wireBytes = packFrame({
+      sessionId,
+      seq: 0,
+      k: 1,
+      blockLen: 16,
+      totalLen: 16,
+      payloadFnv: 0x12345678,
+      flags: 0x80, // FLAG_PAIRING_BEACON
+    }, beaconBlock);
+
+    const handled = await receiver.handleRawBytes(wireBytes);
+    expect(handled).toBe(true);
+    expect(pairedSession).toBe(sessionId);
+    // Receiver should NOT enter COMPLETE or ERROR state
+    expect(receiver.getState()).not.toBe('ERROR');
+    expect(receiver.getState()).not.toBe('COMPLETE');
+    expect(receiver.getReconstructedFile()).toBeNull();
   });
 });
