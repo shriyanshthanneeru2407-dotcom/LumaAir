@@ -616,6 +616,8 @@ const downloadSizeBadge = document.getElementById('download-size-badge') as HTML
 const btnReceiveAnother = document.getElementById('btn-receive-another') as HTMLButtonElement;
 
 // Decimen scanner HUD & overlay elements
+const viewfinderContainer = document.getElementById('viewfinder-container') as HTMLDivElement | null;
+const cameraAspectSelect = document.getElementById('camera-aspect-select') as HTMLSelectElement | null;
 const detectOverlay = document.getElementById('detect-overlay') as HTMLCanvasElement;
 const hudProgressLabel = document.getElementById('hud-progress-label') as HTMLElement | null;
 const hudEtaLabel = document.getElementById('hud-eta-label') as HTMLElement | null;
@@ -905,15 +907,45 @@ btnReceiverReset.addEventListener('click', () => {
   }
 });
 
+// Aspect ratio synchronization to eliminate letterboxing/cropping
+function updateDeviceScreenAspect() {
+  const isLandscape = window.innerWidth >= window.innerHeight;
+  const detectedAspect = isLandscape ? '16:9' : '9:16';
+  document.documentElement.setAttribute('data-device-aspect', detectedAspect);
+  
+  const currentSetting = cameraAspectSelect?.value || 'auto';
+  const effectiveAspect = currentSetting === 'auto' ? detectedAspect : currentSetting;
+  
+  if (viewfinderContainer) {
+    viewfinderContainer.classList.remove('aspect-16-9', 'aspect-9-16');
+    viewfinderContainer.classList.add(effectiveAspect === '16:9' ? 'aspect-16-9' : 'aspect-9-16');
+    viewfinderContainer.style.aspectRatio = effectiveAspect === '16:9' ? '16 / 9' : '9 / 16';
+  }
+}
+
+updateDeviceScreenAspect();
+window.addEventListener('resize', updateDeviceScreenAspect);
+window.addEventListener('orientationchange', updateDeviceScreenAspect);
+
+receiverVideo.addEventListener('resize', () => {
+  if (receiverVideo.videoWidth && receiverVideo.videoHeight) {
+    const container = document.getElementById('viewfinder-container');
+    if (container) {
+      container.style.aspectRatio = `${receiverVideo.videoWidth} / ${receiverVideo.videoHeight}`;
+    }
+  }
+});
+
 // Camera controls
 async function startCameraSession() {
   try {
     const selectedDeviceId = cameraSelect.value || undefined;
     const idealFps = cameraFpsSelect ? Number(cameraFpsSelect.value) : 60;
     const idealWidth = cameraResSelect ? Number(cameraResSelect.value) : 1280;
+    const aspectSetting = (cameraAspectSelect?.value as 'auto' | '16:9' | '9:16') || 'auto';
 
     receiver.setOverlayCanvas(detectOverlay);
-    await receiver.startCamera(receiverVideo, selectedDeviceId, currentFacingMode, detectOverlay, idealWidth, idealFps);
+    await receiver.startCamera(receiverVideo, selectedDeviceId, currentFacingMode, detectOverlay, idealWidth, idealFps, aspectSetting);
     isCameraActive = true;
     cameraBtnText.textContent = 'Stop Camera';
     cameraPlaceholder.classList.add('hidden');
@@ -952,16 +984,6 @@ function stopCameraSession() {
   if (noSignalToast) noSignalToast.classList.add('hidden');
 }
 
-// Aspect ratio synchronization to eliminate letterboxing/cropping
-receiverVideo.addEventListener('resize', () => {
-  if (receiverVideo.videoWidth && receiverVideo.videoHeight) {
-    const container = document.getElementById('viewfinder-container');
-    if (container) {
-      container.style.aspectRatio = `${receiverVideo.videoWidth} / ${receiverVideo.videoHeight}`;
-    }
-  }
-});
-
 // No Signal toast and tips dialog
 btnNoSignalHelp?.addEventListener('click', () => {
   noSignalDialog?.showModal();
@@ -974,6 +996,14 @@ noSignalCloseBtn?.addEventListener('click', () => {
 });
 noSignalDialog?.addEventListener('click', (e) => {
   if (e.target === noSignalDialog) noSignalDialog.close();
+});
+
+cameraAspectSelect?.addEventListener('change', async () => {
+  updateDeviceScreenAspect();
+  if (isCameraActive) {
+    stopCameraSession();
+    await startCameraSession();
+  }
 });
 
 cameraFpsSelect?.addEventListener('change', async () => {

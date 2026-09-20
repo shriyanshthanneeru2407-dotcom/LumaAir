@@ -156,7 +156,8 @@ export class OpticalReceiver {
     facingMode: 'environment' | 'user' = 'environment',
     overlayCanvas?: HTMLCanvasElement,
     idealWidth = 1280,
-    idealFps = 60
+    idealFps = 60,
+    aspectMode: 'auto' | '16:9' | '9:16' = 'auto'
   ): Promise<void> {
     this.stop();
     this.videoElement = videoElement;
@@ -170,10 +171,22 @@ export class OpticalReceiver {
       ? { deviceId: { exact: deviceId } }
       : { facingMode: { ideal: facingMode } };
 
+    // Detect device screen ratio (16:9 landscape vs 9:16 portrait)
+    const isPortrait = aspectMode === '9:16'
+      ? true
+      : aspectMode === '16:9'
+      ? false
+      : (typeof window !== 'undefined' && window.innerHeight > window.innerWidth);
+
+    const targetAspect = isPortrait ? (9 / 16) : (16 / 9);
+    const targetWidth = isPortrait ? Math.round((idealWidth * 9) / 16) : idealWidth;
+    const targetHeight = isPortrait ? idealWidth : Math.round((idealWidth * 9) / 16);
+
     const base: MediaTrackConstraints = {
       ...selection,
-      width: { ideal: idealWidth },
-      height: { ideal: Math.round((idealWidth * 3) / 4) },
+      aspectRatio: { ideal: targetAspect },
+      width: { ideal: targetWidth },
+      height: { ideal: targetHeight },
     };
 
     try {
@@ -184,10 +197,18 @@ export class OpticalReceiver {
           video: { ...base, frameRate: { exact: idealFps } },
         });
       } catch {
-        this.mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { ...base, frameRate: { ideal: idealFps } },
-        });
+        try {
+          this.mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { ...base, frameRate: { ideal: idealFps } },
+          });
+        } catch {
+          // Fallback if driver rejects aspectRatio constraint
+          this.mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { ...selection, frameRate: { ideal: idealFps } },
+          });
+        }
       }
 
       this.videoElement.srcObject = this.mediaStream;
