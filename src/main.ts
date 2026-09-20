@@ -273,6 +273,93 @@ async function handleFileSelected(file: File) {
   }
 }
 
+// Real-time cross-device & cross-tab pairing synchronization
+let senderPairEventSource: EventSource | null = null;
+let senderPairBroadcastChannel: BroadcastChannel | null = null;
+let senderPairSessionId: number | null = null;
+
+function cleanupSenderPairingListeners() {
+  if (senderPairEventSource) {
+    senderPairEventSource.close();
+    senderPairEventSource = null;
+  }
+  if (senderPairBroadcastChannel) {
+    senderPairBroadcastChannel.close();
+    senderPairBroadcastChannel = null;
+  }
+}
+
+function handleSenderPairSuccess(sessionId: number) {
+  if (senderPairSessionId !== sessionId) return;
+  cleanupSenderPairingListeners();
+
+  const hexId = `#${sessionId.toString(16).toUpperCase().padStart(4, '0')}`;
+  
+  // Update banner UI
+  const bannerTitle = document.querySelector('.pairing-banner-title') as HTMLElement | null;
+  const bannerDesc = document.querySelector('.pairing-banner-desc') as HTMLElement | null;
+  const bannerCard = document.getElementById('sender-pairing-banner') as HTMLElement | null;
+  if (bannerTitle) bannerTitle.textContent = `Paired with Receiver (${hexId})`;
+  if (bannerDesc) bannerDesc.textContent = `Optical link established! Select a file or tap Play to transmit.`;
+  if (bannerCard) {
+    bannerCard.style.borderColor = 'rgba(84, 255, 126, 0.6)';
+    bannerCard.style.boxShadow = '0 0 16px rgba(84, 255, 126, 0.25)';
+  }
+
+  showSenderAlert(`🎉 Device Paired Successfully (${hexId})! Both devices are now linked.`, 'info');
+
+  // Confetti celebration ON SENDER ONLY WHEN BOTH DEVICES ARE ACTUALLY PAIRED!
+  confetti({
+    particleCount: 70,
+    spread: 70,
+    origin: { y: 0.6 }
+  });
+}
+
+function startListeningForPairing(sessionId: number) {
+  cleanupSenderPairingListeners();
+  senderPairSessionId = sessionId;
+
+  // 1. Local sync (BroadcastChannel for same browser / different tabs)
+  if (typeof BroadcastChannel !== 'undefined') {
+    try {
+      senderPairBroadcastChannel = new BroadcastChannel('luma_pair_sync');
+      senderPairBroadcastChannel.onmessage = (e) => {
+        if (e.data && e.data.type === 'LUMA_PAIRED' && e.data.sessionId === sessionId) {
+          handleSenderPairSuccess(sessionId);
+        }
+      };
+    } catch (err) {
+      console.warn('BroadcastChannel error:', err);
+    }
+  }
+
+  // 2. Storage event listener (fallback for older browser tabs)
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === `luma_paired_${sessionId}` && e.newValue) {
+      window.removeEventListener('storage', onStorage);
+      handleSenderPairSuccess(sessionId);
+    }
+  };
+  window.addEventListener('storage', onStorage);
+
+  // 3. Cross-device sync via open pub/sub (phone scanning PC screen)
+  try {
+    const topic = `luma_pair_${sessionId.toString(16).toLowerCase().padStart(4, '0')}`;
+    senderPairEventSource = new EventSource(`https://ntfy.sh/${topic}/sse`);
+    senderPairEventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.event === 'message') {
+          handleSenderPairSuccess(sessionId);
+        }
+      } catch (_) {}
+    };
+  } catch (err) {
+    console.warn('Cross-device pairing SSE error:', err);
+  }
+}
+
 if (btnSenderPair) {
   btnSenderPair.addEventListener('click', async () => {
     clearSenderAlert();
@@ -280,12 +367,11 @@ if (btnSenderPair) {
       await sender.renderPairingQr();
       const info = sender.getFrameInfo();
       const hexId = `#${info.sessionId.toString(16).toUpperCase().padStart(4, '0')}`;
-      confetti({
-        particleCount: 50,
-        spread: 65,
-        origin: { y: 0.6 }
-      });
-      showSenderAlert(`Optical Pairing Beacon ${hexId} Active! Point receiver camera here to link.`, 'info');
+      
+      // Start listening for receiver to scan and pair (NO confetti on button click!)
+      startListeningForPairing(info.sessionId);
+
+      showSenderAlert(`Optical Pairing Beacon ${hexId} Active! Point receiver camera at this screen to pair.`, 'info');
     } catch (err: any) {
       showSenderAlert(`Pairing error: ${err.message || err}`, 'error');
     }
@@ -667,6 +753,27 @@ const receiver = new OpticalReceiver({
       spread: 70,
       origin: { y: 0.6 }
     });
+
+    // Notify sender that devices are paired (for two-way celebration!)
+    // 1. Same-device / tab sync via BroadcastChannel & localStorage
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('luma_pair_sync');
+        bc.postMessage({ type: 'LUMA_PAIRED', sessionId });
+        setTimeout(() => bc.close(), 1500);
+      }
+      localStorage.setItem(`luma_paired_${sessionId}`, Date.now().toString());
+    } catch (_) {}
+
+    // 2. Cross-device sync via open pub/sub
+    try {
+      const topic = `luma_pair_${sessionId.toString(16).toLowerCase().padStart(4, '0')}`;
+      fetch(`https://ntfy.sh/${topic}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: 'paired'
+      }).catch(() => {});
+    } catch (_) {}
   },
   onNoSignal: (visible: boolean) => {
     if (noSignalToast) {
