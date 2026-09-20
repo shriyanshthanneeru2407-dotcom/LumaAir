@@ -186,6 +186,16 @@ describe('Decimen Optical Protocol — Single Streaming QR Stream', () => {
 
     sender.stop();
     expect(sender.getState()).toBe('STOPPED');
+
+    // Test 60 FPS configuration
+    const sender60 = new OpticalSender();
+    expect(sender60.getFps()).toBe(60);
+    sender60.setFps(60);
+    expect(sender60.getFps()).toBe(60);
+    sender60.setFps(120); // Clamped to 60
+    expect(sender60.getFps()).toBe(60);
+    sender60.setFps(0); // Clamped to 1
+    expect(sender60.getFps()).toBe(1);
   });
 
   it('should support Device Connection Handshake DEVICE_PAIR frame', () => {

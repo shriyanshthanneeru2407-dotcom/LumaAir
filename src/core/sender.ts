@@ -37,12 +37,15 @@ export class OpticalSender {
   private currentFrameIndex: number = 0;
   private loopCount: number = 0;
   private state: SenderState = 'IDLE';
-  private fps: number = 6; // Fast, smooth animated stream (like Decimen)
+  private fps: number = 60; // 60 FPS Turbo stream (matching Decimen)
   private timerId: number | null = null;
+  private animFrameId: number | null = null;
+  private lastTickTime: number = 0;
   private canvas: HTMLCanvasElement | null = null;
   private gridContainer: HTMLElement | null = null;
   private transferId: string = '';
   private isPairingMode: boolean = false;
+  private preRenderedCanvases: Map<number, HTMLCanvasElement> = new Map();
 
   private onStateChangeCb?: (state: SenderState) => void;
   private onFrameChangeCb?: (info: FrameInfo) => void;
@@ -101,6 +104,7 @@ export class OpticalSender {
     this.currentFrameIndex = 0;
     this.loopCount = 0;
     this.isPairingMode = false;
+    this.preRenderedCanvases.clear();
 
     const arrayBuffer = await file.arrayBuffer();
     const uint8 = new Uint8Array(arrayBuffer);
@@ -109,6 +113,7 @@ export class OpticalSender {
     this.transferId = this.packets.length > 0 ? this.packets[0].transfer_id : '';
     this.setState('LOADED');
     await this.renderCurrentFrame();
+    this.startBackgroundPreRendering();
   }
 
   public start() {
@@ -170,7 +175,7 @@ export class OpticalSender {
   }
 
   public setFps(fps: number) {
-    this.fps = Math.max(1, Math.min(20, fps));
+    this.fps = Math.max(1, Math.min(60, fps));
     if (this.state === 'TRANSMITTING') {
       this.stopLoop();
       this.startLoop();
@@ -233,12 +238,40 @@ export class OpticalSender {
 
   private startLoop() {
     this.stopLoop();
-    const intervalMs = Math.round(1000 / this.fps);
-    const setTimer = typeof window !== 'undefined' ? window.setInterval.bind(window) : setInterval;
-    this.timerId = setTimer(() => { this.nextFrame(); }, intervalMs) as any;
+    this.lastTickTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+    if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+      const loop = (now: number) => {
+        if (this.state !== 'TRANSMITTING') return;
+
+        const frameInterval = 1000 / this.fps;
+        const elapsed = now - this.lastTickTime;
+
+        if (elapsed >= frameInterval) {
+          // Adjust lastTickTime to preserve fractional remainder to prevent cumulative clock drift
+          this.lastTickTime = now - (elapsed % frameInterval);
+          this.nextFrame();
+        }
+
+        if (this.state === 'TRANSMITTING') {
+          this.animFrameId = window.requestAnimationFrame(loop);
+        }
+      };
+
+      this.animFrameId = window.requestAnimationFrame(loop);
+    } else {
+      // Fallback for tests / non-browser environments
+      const intervalMs = Math.max(1, Math.round(1000 / this.fps));
+      const setTimer = typeof window !== 'undefined' ? window.setInterval.bind(window) : setInterval;
+      this.timerId = setTimer(() => { this.nextFrame(); }, intervalMs) as any;
+    }
   }
 
   private stopLoop() {
+    if (this.animFrameId !== null && typeof window !== 'undefined' && window.cancelAnimationFrame) {
+      window.cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
     if (this.timerId !== null) {
       clearInterval(this.timerId);
       this.timerId = null;
@@ -259,20 +292,91 @@ export class OpticalSender {
     const packet = this.packets[this.currentFrameIndex];
     if (!packet) return;
 
-    const qrData = serializePacket(packet);
-    try {
-      await QRCode.toCanvas(this.canvas, qrData, {
-        errorCorrectionLevel: 'M',
-        margin: 0,
-        width: 440,
-        color: { dark: '#000000', light: '#ffffff' }
-      });
+    // Fast-path: If pre-rendered canvas exists, blit immediately with zero QR compute lag
+    const cached = this.preRenderedCanvases.get(this.currentFrameIndex);
+    if (cached) {
+      const ctx = this.canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(cached, 0, 0, this.canvas.width, this.canvas.height);
+      }
       this.canvas.style.display = 'block';
-    } catch (err) {
-      console.error('[Sender] QR render error:', err);
+    } else {
+      const qrData = serializePacket(packet);
+      try {
+        await QRCode.toCanvas(this.canvas, qrData, {
+          errorCorrectionLevel: 'M',
+          margin: 0,
+          width: 440,
+          color: { dark: '#000000', light: '#ffffff' }
+        });
+        this.canvas.style.display = 'block';
+
+        // Cache offscreen copy for 60 FPS repeat playback
+        if (typeof document !== 'undefined') {
+          const offscreen = document.createElement('canvas');
+          offscreen.width = this.canvas.width || 440;
+          offscreen.height = this.canvas.height || 440;
+          const offCtx = offscreen.getContext('2d');
+          if (offCtx) {
+            offCtx.drawImage(this.canvas, 0, 0);
+            this.preRenderedCanvases.set(this.currentFrameIndex, offscreen);
+          }
+        }
+      } catch (err) {
+        console.error('[Sender] QR render error:', err);
+      }
     }
 
     this.notifyFrameChange();
+  }
+
+  private startBackgroundPreRendering() {
+    if (typeof document === 'undefined' || this.packets.length === 0) return;
+
+    let idx = 0;
+    const total = this.packets.length;
+
+    const renderBatch = () => {
+      if (this.packets.length !== total) return; // File replaced
+
+      const batchSize = 10;
+      const end = Math.min(idx + batchSize, total);
+
+      for (; idx < end; idx++) {
+        const i = idx;
+        if (this.preRenderedCanvases.has(i)) continue;
+        const packet = this.packets[i];
+        if (!packet) continue;
+
+        const offscreen = document.createElement('canvas');
+        offscreen.width = 440;
+        offscreen.height = 440;
+        const qrData = serializePacket(packet);
+
+        QRCode.toCanvas(offscreen, qrData, {
+          errorCorrectionLevel: 'M',
+          margin: 0,
+          width: 440,
+          color: { dark: '#000000', light: '#ffffff' }
+        }).then(() => {
+          this.preRenderedCanvases.set(i, offscreen);
+        }).catch(() => {});
+      }
+
+      if (idx < total) {
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(renderBatch);
+        } else {
+          setTimeout(renderBatch, 4);
+        }
+      }
+    };
+
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(renderBatch);
+    } else {
+      setTimeout(renderBatch, 4);
+    }
   }
 
   public getPairingPacket(): ProtocolPacket {

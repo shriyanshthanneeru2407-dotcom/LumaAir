@@ -88,7 +88,7 @@ let currentLoadedFile: File | null = null;
 let currentGridMode: GridMode = '1x1';
 
 const sender = new OpticalSender({
-  fps: 6,
+  fps: 60,
   gridMode: currentGridMode,
   onStateChange: updateSenderStateUI,
   onFrameChange: updateSenderFrameUI
