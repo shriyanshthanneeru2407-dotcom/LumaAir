@@ -1,20 +1,17 @@
 /**
  * Cross-Device Optical File Transfer Protocol (v2) — Luma
- * Structured multi-frame protocol with START, DATA, and END frames.
- * Grid modes: 4×4 (16 QRs), 3×3 (9 QRs), 2×2 (4 QRs) displayed simultaneously.
+ * High-speed single animated QR code stream with terminal typewriter UI.
  */
 
 export const PROTOCOL_HEADER = 'LUMA2:';
 export const PROTOCOL_VERSION = 2;
-export const DEFAULT_CHUNK_SIZE = 200; // Bytes per individual DATA_FRAME QR code
+export const DEFAULT_CHUNK_SIZE = 250; // High throughput per single QR code
 
 export type PacketType = 'DEVICE_PAIR' | 'TRANSFER_START' | 'DATA_FRAME' | 'TRANSFER_END';
-export type GridMode = '4x4' | '3x3' | '2x2';
+export type GridMode = '1x1';
 
 export const GRID_SIZES: Record<GridMode, number> = {
-  '4x4': 16,
-  '3x3': 9,
-  '2x2': 4,
+  '1x1': 1,
 };
 
 /**
@@ -47,7 +44,7 @@ export interface TransferStartPacket {
 }
 
 /**
- * 2. DATA_FRAME — one QR code = one chunk
+ * 2. DATA_FRAME — single QR code per chunk
  */
 export interface DataFramePacket {
   type: 'DATA_FRAME';
@@ -114,9 +111,9 @@ export function getFileExtension(filename: string): string {
 
 export function createPairingPacket(
   transferId: string,
-  deviceName: string = 'Luma Sender',
-  gridMode: string = '3x3',
-  moduleCount: number = GRID_SIZES['3x3']
+  deviceName: string = 'Luma Terminal',
+  gridMode: string = '1x1',
+  moduleCount: number = 1
 ): DevicePairPacket {
   return {
     type: 'DEVICE_PAIR',
@@ -211,9 +208,9 @@ export function parsePacket(rawString: string): ProtocolPacket | null {
           type: 'DEVICE_PAIR',
           protocol_version: obj.protocol_version || PROTOCOL_VERSION,
           transfer_id: obj.transfer_id,
-          device_name: obj.device_name || 'Luma Sender',
-          grid_mode: obj.grid_mode || '3x3',
-          module_count: obj.module_count || GRID_SIZES['3x3'],
+          device_name: obj.device_name || 'Luma Terminal',
+          grid_mode: obj.grid_mode || '1x1',
+          module_count: obj.module_count || 1,
           timestamp: obj.timestamp || Date.now()
         } as DevicePairPacket;
       }
@@ -319,7 +316,7 @@ export class TransferAssembler {
     if (packet.type === 'DEVICE_PAIR') {
       const wasPaired = this.isPaired;
       this.isPaired = true;
-      this.pairedDeviceName = packet.device_name || 'Luma Sender';
+      this.pairedDeviceName = packet.device_name || 'Luma Terminal';
       return { accepted: true, isNew: !wasPaired, isComplete: false, packetType: 'DEVICE_PAIR' };
     } else if (packet.type === 'TRANSFER_START') {
       if (!this.header) {

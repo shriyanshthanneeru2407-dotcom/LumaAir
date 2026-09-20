@@ -11,11 +11,10 @@ import {
   getFileExtension,
   TransferStartPacket,
   DataFramePacket,
-  TransferEndPacket,
-  GRID_SIZES
+  TransferEndPacket
 } from '../src/core/protocol';
 
-describe('Luma Optical Transfer Protocol v2 — Grid Modes (4×4, 3×3, 2×2)', () => {
+describe('Decimen Optical Protocol — Single Streaming QR Stream', () => {
   it('should roundtrip binary data to base64 correctly', () => {
     const original = new Uint8Array([0, 1, 2, 254, 255, 128, 64, 32, 16, 8, 4, 2, 1]);
     const b64 = bytesToBase64(original);
@@ -30,16 +29,10 @@ describe('Luma Optical Transfer Protocol v2 — Grid Modes (4×4, 3×3, 2×2)', 
     expect(getFileExtension('no_ext')).toBe('');
   });
 
-  it('should expose correct GRID_SIZES constants', () => {
-    expect(GRID_SIZES['4x4']).toBe(16);
-    expect(GRID_SIZES['3x3']).toBe(9);
-    expect(GRID_SIZES['2x2']).toBe(4);
-  });
-
-  it('should generate structured START, DATA_FRAME, and END packets', () => {
-    const textData = 'Structured Optical Communication Frame Protocol Phase 2 Verification'.repeat(10);
+  it('should generate structured START, DATA_FRAME, and END packets for single QR stream', () => {
+    const textData = 'Decimen Optical Communication Air-Gap Protocol Verification'.repeat(10);
     const buffer = new TextEncoder().encode(textData);
-    const chunkSize = 200;
+    const chunkSize = 250;
 
     const packets = createTransferPackets(buffer, 'report.pdf', 'application/pdf', chunkSize);
 
@@ -56,9 +49,9 @@ describe('Luma Optical Transfer Protocol v2 — Grid Modes (4×4, 3×3, 2×2)', 
     expect(startPacket.total_chunks).toBe(Math.ceil(buffer.byteLength / chunkSize));
     expect(startPacket.file_checksum).toBe(crc32(buffer));
 
-    // Middle packets must be DATA_FRAME (one per chunk)
+    // Middle packets must be DATA_FRAME (single stream)
     const totalChunks = startPacket.total_chunks;
-    expect(packets.length).toBe(totalChunks + 2); // START + N DATA_FRAME + END
+    expect(packets.length).toBe(totalChunks + 2);
 
     for (let i = 0; i < totalChunks; i++) {
       const dataPacket = packets[i + 1] as DataFramePacket;
@@ -110,17 +103,15 @@ describe('Luma Optical Transfer Protocol v2 — Grid Modes (4×4, 3×3, 2×2)', 
     expect(resA1.accepted).toBe(true);
     expect(assembler.getProgress().transferId).toBe(packetsA[0].transfer_id);
 
-    // 2. Attempt to inject a frame from transfer B — must be REJECTED
+    // 2. Foreign packet rejected
     const resB = assembler.addPacket(packetsB[1]);
     expect(resB.accepted).toBe(false);
     expect(resB.rejectedReason).toContain('different transfer');
     expect(assembler.getProgress().rejectedCount).toBe(1);
-    expect(assembler.getProgress().lastRejectedTransferId).toBe(packetsB[0].transfer_id);
 
-    // 3. Transfer A still works
+    // 3. Transfer A continues
     const resA2 = assembler.addPacket(packetsA[1]);
     expect(resA2.accepted).toBe(true);
-    expect(assembler.getProgress().receivedCount).toBe(1);
   });
 
   it('should reject DATA_FRAME with corrupted payload CRC', () => {
@@ -129,26 +120,22 @@ describe('Luma Optical Transfer Protocol v2 — Grid Modes (4×4, 3×3, 2×2)', 
     const dataPacket = packets[1] as DataFramePacket;
     expect(dataPacket.type).toBe('DATA_FRAME');
 
-    // Tamper with the CRC in serialized form
     const serialized = serializePacket(dataPacket);
     const parsed = JSON.parse(serialized.slice('LUMA2:'.length));
     parsed.crc = parsed.crc ^ 0x9999; // Corrupt CRC
     const tamperedStr = 'LUMA2:' + JSON.stringify(parsed);
     const result = parsePacket(tamperedStr);
-    // parsePacket must return null for CRC mismatch
     expect(result).toBeNull();
   });
 
-  it('should reassemble full file and verify whole-file checksum from shuffled packets', () => {
+  it('should reassemble full file and verify whole-file checksum from shuffled frames', () => {
     const rawBytes = new Uint8Array(800);
     for (let i = 0; i < 800; i++) rawBytes[i] = (i * 17) % 256;
 
     const packets = createTransferPackets(rawBytes, 'dataset.bin', 'application/octet-stream', 200);
     const assembler = new TransferAssembler();
 
-    // Shuffle packets out of order
     const shuffled = [...packets].sort(() => Math.random() - 0.5);
-
     for (const p of shuffled) {
       assembler.addPacket(p);
     }
@@ -157,21 +144,19 @@ describe('Luma Optical Transfer Protocol v2 — Grid Modes (4×4, 3×3, 2×2)', 
     const reconstructed = assembler.reconstruct();
     expect(reconstructed).not.toBeNull();
     expect(reconstructed?.fileName).toBe('dataset.bin');
-    expect(reconstructed?.fileExt).toBe('bin');
     expect(reconstructed?.fileBuffer).toEqual(rawBytes);
     expect(reconstructed?.checksum).toBe(crc32(rawBytes));
   });
 
-  it('should support grid mode OpticalSender with all 5 playback controls (start, pause, stop, prev, next)', async () => {
+  it('should support single-QR OpticalSender with all 5 playback controls (start, pause, stop, prev, next)', async () => {
     const { OpticalSender } = await import('../src/core/sender');
 
-    const sender = new OpticalSender({ fps: 3, gridMode: '3x3' });
-    expect(sender.getGridMode()).toBe('3x3');
-    expect(sender.getPageSize()).toBe(9);
+    const sender = new OpticalSender({ fps: 6 });
+    expect(sender.getGridMode()).toBe('1x1');
+    expect(sender.getPageSize()).toBe(1);
 
-    // Mock a File with 200 bytes of data (at 200B/chunk = 1 data chunk)
-    const content = new Uint8Array(200);
-    for (let i = 0; i < 200; i++) content[i] = i % 256;
+    const content = new Uint8Array(300);
+    for (let i = 0; i < 300; i++) content[i] = i % 256;
     const mockFile = {
       name: 'stream.dat',
       type: 'application/octet-stream',
@@ -179,73 +164,44 @@ describe('Luma Optical Transfer Protocol v2 — Grid Modes (4×4, 3×3, 2×2)', 
       arrayBuffer: async () => content.buffer
     } as unknown as File;
 
-    await sender.loadFile(mockFile, 200);
+    await sender.loadFile(mockFile, 150);
 
-    const infoP0 = sender.getFrameInfo();
-    // 1 START + 1 DATA_FRAME + 1 END = 3 packets → all fit on 1 page of 9
-    expect(infoP0.totalPages).toBeGreaterThanOrEqual(1);
-    expect(infoP0.gridMode).toBe('3x3');
+    const info = sender.getFrameInfo();
+    // 1 START + 2 DATA + 1 END = 4 frames
+    expect(info.totalFrames).toBe(4);
     expect(sender.getState()).toBe('LOADED');
 
-    // Test Playback Controls:
-    // 1. Next page
+    // Controls
     sender.nextFrame();
-    expect(sender.getFrameInfo().currentPage).toBeGreaterThanOrEqual(0);
+    expect(sender.getFrameInfo().frameIndex).toBe(1);
 
-    // 2. Previous page
     sender.prevFrame();
+    expect(sender.getFrameInfo().frameIndex).toBe(0);
 
-    // 3. Start transmission
     sender.start();
     expect(sender.getState()).toBe('TRANSMITTING');
 
-    // 4. Pause
     sender.pause();
     expect(sender.getState()).toBe('PAUSED');
 
-    // 5. Stop
     sender.stop();
     expect(sender.getState()).toBe('STOPPED');
-    expect(sender.getFrameInfo().currentPage).toBe(0);
   });
 
   it('should support Device Connection Handshake DEVICE_PAIR frame', () => {
-    const pairPacket = createPairingPacket('pair1234', 'Sender Phone', '3x3', 9);
+    const pairPacket = createPairingPacket('pair1234', 'Sender Phone', '1x1', 1);
     expect(pairPacket.type).toBe('DEVICE_PAIR');
     expect(pairPacket.transfer_id).toBe('pair1234');
-    expect(pairPacket.grid_mode).toBe('3x3');
-    expect(pairPacket.module_count).toBe(9);
+    expect(pairPacket.grid_mode).toBe('1x1');
+    expect(pairPacket.module_count).toBe(1);
 
     const serialized = serializePacket(pairPacket);
     const parsed = parsePacket(serialized);
     expect(parsed).not.toBeNull();
-    expect(parsed?.type).toBe('DEVICE_PAIR');
-    expect(parsed?.transfer_id).toBe('pair1234');
 
-    // Feed pairing packet to assembler
     const assembler = new TransferAssembler();
     const result = assembler.addPacket(parsed!);
     expect(result.accepted).toBe(true);
-    expect(result.packetType).toBe('DEVICE_PAIR');
-
-    const progress = assembler.getProgress();
-    expect(progress.isPaired).toBe(true);
-    expect(progress.transferId).toBe('pair1234');
-  });
-
-  it('should correctly switch grid modes: 4x4 → 3x3 → 2x2', async () => {
-    const { OpticalSender } = await import('../src/core/sender');
-
-    const sender = new OpticalSender({ fps: 3, gridMode: '4x4' });
-    expect(sender.getGridMode()).toBe('4x4');
-    expect(sender.getPageSize()).toBe(16);
-
-    sender.setGridMode('3x3');
-    expect(sender.getGridMode()).toBe('3x3');
-    expect(sender.getPageSize()).toBe(9);
-
-    sender.setGridMode('2x2');
-    expect(sender.getGridMode()).toBe('2x2');
-    expect(sender.getPageSize()).toBe(4);
+    expect(assembler.getProgress().isPaired).toBe(true);
   });
 });

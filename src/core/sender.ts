@@ -7,7 +7,6 @@ import {
   PacketType,
   DEFAULT_CHUNK_SIZE,
   GridMode,
-  GRID_SIZES,
 } from './protocol';
 
 export type SenderState = 'IDLE' | 'PAIRING' | 'LOADED' | 'TRANSMITTING' | 'PAUSED' | 'STOPPED';
@@ -32,23 +31,16 @@ export interface FrameInfo {
   pageHoldSeconds: number;
 }
 
-// Error correction per grid: 4x4 and 3x3 use 'L' for max data density
-// 2x2 uses 'M' for more robust scanning on larger individual QRs
-const EC_LEVEL: Record<GridMode, 'L' | 'M'> = { '4x4': 'L', '3x3': 'L', '2x2': 'M' };
-// QR pixel size per grid mode (individual slot)
-const QR_SLOT_PX: Record<GridMode, number> = { '4x4': 200, '3x3': 260, '2x2': 380 };
-
 export class OpticalSender {
   private file: File | null = null;
   private packets: ProtocolPacket[] = [];
-  private currentPageIndex: number = 0;
+  private currentFrameIndex: number = 0;
   private loopCount: number = 0;
   private state: SenderState = 'IDLE';
-  private fps: number = 3;
+  private fps: number = 6; // Fast, smooth animated stream (like Decimen)
   private timerId: number | null = null;
+  private canvas: HTMLCanvasElement | null = null;
   private gridContainer: HTMLElement | null = null;
-  private slotCanvases: HTMLCanvasElement[] = [];
-  private gridMode: GridMode = '3x3';
   private transferId: string = '';
   private isPairingMode: boolean = false;
 
@@ -63,31 +55,41 @@ export class OpticalSender {
     onFrameChange?: (info: FrameInfo) => void;
   }) {
     if (options?.fps) this.fps = options.fps;
-    if (options?.gridMode) this.gridMode = options.gridMode;
+    if (options?.canvas) this.canvas = options.canvas;
     this.onStateChangeCb = options?.onStateChange;
     this.onFrameChangeCb = options?.onFrameChange;
-
-    // Support legacy single-canvas for sandbox
-    if (options?.canvas) {
-      this.gridContainer = null;
-      // Create a pseudo-container around canvas
-      const pseudoContainer = options.canvas.parentElement;
-      if (pseudoContainer) this.gridContainer = pseudoContainer;
-      // In sandbox mode, we just use the canvas element directly
-      this.slotCanvases = [options.canvas];
-    }
   }
 
   public attachCanvas(canvas: HTMLCanvasElement) {
-    this.slotCanvases = [canvas];
+    this.canvas = canvas;
   }
 
   public attachGridContainer(container: HTMLElement) {
     this.gridContainer = container;
+    // Find or create canvas inside container if needed
+    let canvas = container.querySelector('canvas');
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.id = 'sender-single-canvas';
+      canvas.className = 'qr-single-canvas';
+      canvas.width = 440;
+      canvas.height = 440;
+      container.appendChild(canvas);
+    }
+    this.canvas = canvas;
   }
 
-  private get pageSize(): number {
-    return GRID_SIZES[this.gridMode];
+  public renderGridSlots() {
+    if (this.gridContainer) {
+      this.gridContainer.innerHTML = '';
+      const canvas = document.createElement('canvas');
+      canvas.id = 'sender-single-canvas';
+      canvas.className = 'qr-single-canvas';
+      canvas.width = 440;
+      canvas.height = 440;
+      this.gridContainer.appendChild(canvas);
+      this.canvas = canvas;
+    }
   }
 
   public async loadFile(
@@ -96,7 +98,7 @@ export class OpticalSender {
   ): Promise<void> {
     this.stop();
     this.file = file;
-    this.currentPageIndex = 0;
+    this.currentFrameIndex = 0;
     this.loopCount = 0;
     this.isPairingMode = false;
 
@@ -106,7 +108,7 @@ export class OpticalSender {
     this.packets = createTransferPackets(uint8, file.name, file.type || 'application/octet-stream', chunkSize);
     this.transferId = this.packets.length > 0 ? this.packets[0].transfer_id : '';
     this.setState('LOADED');
-    await this.renderCurrentPage();
+    await this.renderCurrentFrame();
   }
 
   public start() {
@@ -130,12 +132,12 @@ export class OpticalSender {
 
   public stop() {
     this.stopLoop();
-    this.currentPageIndex = 0;
+    this.currentFrameIndex = 0;
     this.loopCount = 0;
     this.isPairingMode = false;
     if (this.packets.length > 0) {
       this.setState('STOPPED');
-      this.renderCurrentPage();
+      this.renderCurrentFrame();
     } else {
       this.setState('IDLE');
     }
@@ -143,24 +145,23 @@ export class OpticalSender {
 
   public nextFrame() {
     if (this.packets.length === 0) return;
-    const totalPages = this.getTotalPages();
-    this.currentPageIndex = (this.currentPageIndex + 1) % totalPages;
-    if (this.currentPageIndex === 0) this.loopCount++;
-    this.renderCurrentPage();
+    const total = this.packets.length;
+    this.currentFrameIndex = (this.currentFrameIndex + 1) % total;
+    if (this.currentFrameIndex === 0) this.loopCount++;
+    this.renderCurrentFrame();
   }
 
   public prevFrame() {
     if (this.packets.length === 0) return;
-    const totalPages = this.getTotalPages();
-    this.currentPageIndex = (this.currentPageIndex - 1 + totalPages) % totalPages;
-    this.renderCurrentPage();
+    const total = this.packets.length;
+    this.currentFrameIndex = (this.currentFrameIndex - 1 + total) % total;
+    this.renderCurrentFrame();
   }
 
   public seekFrame(index: number) {
-    const totalPages = this.getTotalPages();
-    if (index >= 0 && index < totalPages) {
-      this.currentPageIndex = index;
-      this.renderCurrentPage();
+    if (index >= 0 && index < this.packets.length) {
+      this.currentFrameIndex = index;
+      this.renderCurrentFrame();
     }
   }
 
@@ -169,7 +170,7 @@ export class OpticalSender {
   }
 
   public setFps(fps: number) {
-    this.fps = Math.max(1, Math.min(15, fps));
+    this.fps = Math.max(1, Math.min(20, fps));
     if (this.state === 'TRANSMITTING') {
       this.stopLoop();
       this.startLoop();
@@ -179,29 +180,22 @@ export class OpticalSender {
 
   public getFps(): number { return this.fps; }
 
-  public getPageSize(): number { return this.pageSize; }
+  public getPageSize(): number { return 1; }
 
   public getTotalPages(): number {
-    if (this.packets.length === 0) return 1;
-    // Total pages = ceil(packets / pageSize). But we show START and END on their own page.
-    return Math.ceil(this.packets.length / this.pageSize);
+    return Math.max(1, this.packets.length);
   }
 
-  public getCurrentPage(): number { return this.currentPageIndex; }
+  public getCurrentPage(): number { return this.currentFrameIndex; }
 
-  public setGridMode(mode: GridMode) {
-    if (this.gridMode === mode) return;
-    this.gridMode = mode;
-    this.currentPageIndex = 0;
-    this.renderGridSlots();
-    if (this.packets.length > 0) this.renderCurrentPage();
+  public setGridMode(_mode: GridMode) {
     this.notifyFrameChange();
   }
 
-  public getGridMode(): GridMode { return this.gridMode; }
+  public getGridMode(): GridMode { return '1x1'; }
 
   public setCustomSlotCount(_count: number) {}
-  public getCustomSlotCount(): number { return this.pageSize; }
+  public getCustomSlotCount(): number { return 1; }
 
   public setPageHoldSeconds(sec: number) {
     if (sec > 0) this.setFps(Math.round(1 / sec));
@@ -212,18 +206,13 @@ export class OpticalSender {
   public getState(): SenderState { return this.state; }
 
   public getFrameInfo(): FrameInfo {
-    const totalPages = this.getTotalPages();
-    const pageStart = this.currentPageIndex * this.pageSize;
-    const pagePackets = this.packets.slice(pageStart, pageStart + this.pageSize);
-    const activeSlotsCount = pagePackets.length;
-    const emptySlotsCount = this.pageSize - activeSlotsCount;
-
-    const firstPacket = pagePackets[0] || null;
-    let frameType: PacketType = firstPacket?.type || 'TRANSFER_START';
+    const total = this.packets.length;
+    const packet = this.packets[this.currentFrameIndex] || null;
+    const frameType: PacketType = packet?.type || 'TRANSFER_START';
 
     return {
-      frameIndex: this.currentPageIndex,
-      totalFrames: totalPages,
+      frameIndex: this.currentFrameIndex,
+      totalFrames: total,
       loopCount: this.loopCount,
       frameType,
       transferId: this.transferId,
@@ -231,13 +220,13 @@ export class OpticalSender {
       fileExt: this.file ? this.file.name.split('.').pop() || '' : '',
       fileSize: this.file?.size || 0,
       fps: this.fps,
-      packet: firstPacket,
-      gridMode: this.gridMode,
-      currentPage: this.currentPageIndex,
-      totalPages,
-      pageSize: this.pageSize,
-      activeSlotsCount,
-      emptySlotsCount,
+      packet,
+      gridMode: '1x1',
+      currentPage: this.currentFrameIndex,
+      totalPages: total,
+      pageSize: 1,
+      activeSlotsCount: 1,
+      emptySlotsCount: 0,
       pageHoldSeconds: this.getPageHoldSeconds()
     };
   }
@@ -256,103 +245,33 @@ export class OpticalSender {
     }
   }
 
-  /**
-   * Rebuild the DOM grid slots inside the container
-   */
-  public renderGridSlots() {
-    if (!this.gridContainer) return;
-
-    this.slotCanvases = [];
-    this.gridContainer.innerHTML = '';
-    this.gridContainer.className = `qr-grid-matrix grid-${this.gridMode}`;
-
-    const count = this.pageSize;
-    for (let i = 0; i < count; i++) {
-      const slot = document.createElement('div');
-      slot.className = 'qr-slot';
-      slot.id = `qr-slot-${i}`;
-
-      const canvas = document.createElement('canvas');
-      canvas.className = 'qr-slot-canvas';
-      canvas.width = QR_SLOT_PX[this.gridMode];
-      canvas.height = QR_SLOT_PX[this.gridMode];
-      slot.appendChild(canvas);
-
-      this.gridContainer.appendChild(slot);
-      this.slotCanvases.push(canvas);
-    }
-  }
-
-  private async renderCurrentPage(): Promise<void> {
+  private async renderCurrentFrame(): Promise<void> {
     if (this.isPairingMode) {
       this.notifyFrameChange();
       return;
     }
 
-    if (this.packets.length === 0) {
+    if (this.packets.length === 0 || !this.canvas) {
       this.notifyFrameChange();
       return;
     }
 
-    const pageStart = this.currentPageIndex * this.pageSize;
-    const pagePackets = this.packets.slice(pageStart, pageStart + this.pageSize);
-    const ecLevel = EC_LEVEL[this.gridMode];
-    const qrPx = QR_SLOT_PX[this.gridMode];
+    const packet = this.packets[this.currentFrameIndex];
+    if (!packet) return;
 
-    // Sandbox mode: single canvas — render first packet only
-    if (this.gridContainer === null || (this.slotCanvases.length === 1 && !this.gridContainer)) {
-      if (pagePackets[0] && this.slotCanvases[0]) {
-        const qrData = serializePacket(pagePackets[0]);
-        try {
-          await QRCode.toCanvas(this.slotCanvases[0], qrData, {
-            errorCorrectionLevel: ecLevel, margin: 2, width: 300,
-            color: { dark: '#000000', light: '#ffffff' }
-          });
-        } catch (err) {
-          console.error('[Sender] QR render error:', err);
-        }
-      }
-      this.notifyFrameChange();
-      return;
+    const qrData = serializePacket(packet);
+    try {
+      await QRCode.toCanvas(this.canvas, qrData, {
+        errorCorrectionLevel: 'M',
+        margin: 0,
+        width: 440,
+        color: { dark: '#000000', light: '#ffffff' }
+      });
+      this.canvas.style.display = 'block';
+    } catch (err) {
+      console.error('[Sender] QR render error:', err);
     }
 
-    // Render each slot
-    const renderPromises = this.slotCanvases.map(async (canvas, i) => {
-      const slot = canvas.parentElement;
-      if (i < pagePackets.length) {
-        const packet = pagePackets[i];
-        const qrData = serializePacket(packet);
-        if (slot) {
-          slot.className = 'qr-slot qr-slot-active';
-          // Remove empty badge if any
-          const emptyLabel = slot.querySelector('.qr-slot-empty');
-          if (emptyLabel) emptyLabel.remove();
-        }
-        try {
-          await QRCode.toCanvas(canvas, qrData, {
-            errorCorrectionLevel: ecLevel, margin: 0, width: qrPx,
-            color: { dark: '#000000', light: '#ffffff' }
-          });
-          canvas.style.display = 'block';
-        } catch (err) {
-          console.error(`[Sender] QR render error slot ${i}:`, err);
-        }
-      } else {
-        // Empty slot
-        if (slot) {
-          slot.className = 'qr-slot qr-slot-empty';
-          canvas.style.display = 'none';
-          if (!slot.querySelector('.qr-slot-empty-label')) {
-            const label = document.createElement('div');
-            label.className = 'qr-slot-empty-label';
-            label.textContent = '—';
-            slot.appendChild(label);
-          }
-        }
-      }
-    });
-
-    await Promise.all(renderPromises);
     this.notifyFrameChange();
   }
 
@@ -360,7 +279,7 @@ export class OpticalSender {
     if (!this.transferId) {
       this.transferId = Math.random().toString(36).substring(2, 10);
     }
-    return createPairingPacket(this.transferId, 'Luma Optical Sender', this.gridMode, this.pageSize);
+    return createPairingPacket(this.transferId, 'Luma Terminal', '1x1', 1);
   }
 
   public async renderPairingQr(): Promise<void> {
@@ -369,32 +288,15 @@ export class OpticalSender {
     const packet = this.getPairingPacket();
     const qrData = serializePacket(packet);
 
-    if (this.gridContainer) {
-      // Show pairing QR in center of grid
-      this.gridContainer.innerHTML = '';
-      this.gridContainer.className = 'qr-grid-matrix grid-pairing';
-      const slot = document.createElement('div');
-      slot.className = 'qr-slot qr-slot-active';
-      slot.style.width = '100%';
-      slot.style.maxWidth = '300px';
-      slot.style.aspectRatio = '1';
-      const canvas = document.createElement('canvas');
-      canvas.width = 300;
-      canvas.height = 300;
-      slot.appendChild(canvas);
-      this.gridContainer.appendChild(slot);
+    if (this.canvas) {
       try {
-        await QRCode.toCanvas(canvas, qrData, {
-          errorCorrectionLevel: 'H', margin: 2, width: 300,
+        await QRCode.toCanvas(this.canvas, qrData, {
+          errorCorrectionLevel: 'H',
+          margin: 0,
+          width: 440,
           color: { dark: '#000000', light: '#ffffff' }
         });
-      } catch (err) { console.error('[Sender] Pairing QR render error:', err); }
-    } else if (this.slotCanvases[0]) {
-      try {
-        await QRCode.toCanvas(this.slotCanvases[0], qrData, {
-          errorCorrectionLevel: 'H', margin: 2, width: 300,
-          color: { dark: '#000000', light: '#ffffff' }
-        });
+        this.canvas.style.display = 'block';
       } catch (err) { console.error('[Sender] Pairing QR render error:', err); }
     }
 
