@@ -53,7 +53,7 @@ export class OpticalSender {
   private currentSeq: number = 0;
   private loopCount: number = 0;
   private state: SenderState = 'IDLE';
-  private fps: number = 60; // 60 FPS Decimen Turbo
+  private fps: number = 45; // 45 FPS Max & Default
   private timerId: number | null = null;
   private animFrameId: number | null = null;
   private lastTickTime: number = 0;
@@ -201,7 +201,7 @@ export class OpticalSender {
   }
 
   public setFps(fps: number) {
-    this.fps = Math.max(1, Math.min(60, fps));
+    this.fps = Math.max(1, Math.min(45, fps));
     if (this.state === 'TRANSMITTING') {
       this.stopLoop();
       this.startLoop();

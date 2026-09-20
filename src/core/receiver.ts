@@ -156,7 +156,7 @@ export class OpticalReceiver {
     facingMode: 'environment' | 'user' = 'environment',
     overlayCanvas?: HTMLCanvasElement,
     idealWidth = 1280,
-    idealFps = 60,
+    idealFps = 45,
     aspectMode: 'auto' | '16:9' | '9:16' = 'auto'
   ): Promise<void> {
     this.stop();

@@ -132,9 +132,9 @@ describe('Decimen Optical Protocol (Wire v3) & Fountain Coding', () => {
     expect(assembled).toEqual(payload);
   });
 
-  it('should configure OpticalSender with compact block counts and 60 FPS', async () => {
-    const sender = new OpticalSender({ fps: 60 });
-    expect(sender.getFps()).toBe(60);
+  it('should configure OpticalSender with compact block counts and 45 FPS', async () => {
+    const sender = new OpticalSender({ fps: 45 });
+    expect(sender.getFps()).toBe(45);
 
     // Small 15 KB file
     const content = new Uint8Array(15 * 1024);

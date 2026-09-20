@@ -35,6 +35,55 @@ navTabs.forEach(tab => {
   });
 });
 
+// ================= HOME HUB CONTROLLER (2 BOXES) =================
+const homeBoxSend = document.getElementById('home-box-send') as HTMLElement | null;
+const homeBoxReceive = document.getElementById('home-box-receive') as HTMLElement | null;
+const btnsBackHome = document.querySelectorAll<HTMLButtonElement>('.btn-back-home');
+
+if (homeBoxSend) {
+  homeBoxSend.addEventListener('click', () => {
+    switchTab('sender-view');
+  });
+
+  // Drag & drop directly onto Send Box on Home screen
+  homeBoxSend.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    homeBoxSend.classList.add('dragover');
+  });
+
+  homeBoxSend.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    homeBoxSend.classList.remove('dragover');
+  });
+
+  homeBoxSend.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    homeBoxSend.classList.remove('dragover');
+    if (e.dataTransfer?.files && e.dataTransfer.files[0]) {
+      switchTab('sender-view');
+      handleFileSelected(e.dataTransfer.files[0]);
+    }
+  });
+}
+
+if (homeBoxReceive) {
+  homeBoxReceive.addEventListener('click', () => {
+    switchTab('receiver-view');
+    if (!isCameraActive) {
+      startCameraSession();
+    }
+  });
+}
+
+btnsBackHome.forEach(btn => {
+  btn.addEventListener('click', () => {
+    switchTab('home-view');
+  });
+});
+
 // ================= SENDER CONTROLLER =================
 const qrGridMatrix = document.getElementById('qr-grid-matrix') as HTMLDivElement;
 const fileDropzone = document.getElementById('file-dropzone') as HTMLDivElement;
@@ -88,7 +137,7 @@ const fsPageIndicator = document.getElementById('fs-page-indicator') as HTMLSpan
 let currentLoadedFile: File | null = null;
 
 const sender = new OpticalSender({
-  fps: 60,
+  fps: 45,
   frameBytes: DEFAULT_FRAME_BYTES,
   onStateChange: updateSenderStateUI,
   onFrameChange: updateSenderFrameUI
@@ -940,7 +989,7 @@ receiverVideo.addEventListener('resize', () => {
 async function startCameraSession() {
   try {
     const selectedDeviceId = cameraSelect.value || undefined;
-    const idealFps = cameraFpsSelect ? Number(cameraFpsSelect.value) : 60;
+    const idealFps = cameraFpsSelect ? Number(cameraFpsSelect.value) : 45;
     const idealWidth = cameraResSelect ? Number(cameraResSelect.value) : 1280;
     const aspectSetting = (cameraAspectSelect?.value as 'auto' | '16:9' | '9:16') || 'auto';
 

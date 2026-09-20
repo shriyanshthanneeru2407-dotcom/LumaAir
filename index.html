@@ -34,11 +34,14 @@
 
         <!-- Navigation Tabs -->
         <nav class="nav-tabs" role="tablist">
-          <button class="nav-tab active" id="tab-sender" data-tab="sender-view" role="tab" aria-selected="true">
-            <span class="tab-dot"></span> Sender
+          <button class="nav-tab active" id="tab-home" data-tab="home-view" role="tab" aria-selected="true">
+            <span class="tab-dot"></span> Home
+          </button>
+          <button class="nav-tab" id="tab-sender" data-tab="sender-view" role="tab" aria-selected="false">
+            <span class="tab-dot"></span> Send
           </button>
           <button class="nav-tab" id="tab-receiver" data-tab="receiver-view" role="tab" aria-selected="false">
-            <span class="tab-dot"></span> Receiver
+            <span class="tab-dot"></span> Receive
           </button>
           <button class="nav-tab" id="tab-sandbox" data-tab="sandbox-view" role="tab" aria-selected="false">
             <span class="tab-dot"></span> Self-Test
@@ -48,8 +51,112 @@
 
       <!-- Main Content -->
       <main class="main-content">
+        <!-- ================= HOME VIEW (DECIMEN-STYLE 2 BOXES) ================= -->
+        <section id="home-view" class="view-panel active">
+          <div class="home-hero">
+            <div class="home-hero-badge font-mono">
+              <span class="badge-pulse-dot"></span> AIR-GAPPED SIMPLEX OPTICAL TRANSFER • 45 FPS MAX
+            </div>
+            <h1 class="home-hero-title">LumaAir</h1>
+            <p class="home-hero-tagline">Air-Gapped Optical File Transfer via High-Density Dynamic QR Streams</p>
+            
+            <div class="home-about-card">
+              <div class="about-header font-mono">
+                <span class="about-tag">⚡ ABOUT LUMA</span>
+                <span class="about-meta">Zero Network • Pure Visible Light</span>
+              </div>
+              <p class="about-desc">
+                <strong>LumaAir</strong> enables secure, air-gapped file sharing between devices entirely through visible light. 
+                It requires <strong>zero network connectivity</strong> — no Wi-Fi, Bluetooth, local area networks, or cloud servers. 
+                Files are encoded into mathematical <strong>Luby Transform (LT) fountain codes</strong> and transmitted as high-frequency animated QR frames at up to <strong>45 FPS</strong>. 
+                The receiving device captures the stream with its camera and reconstructs the original file in real time using hardware-accelerated <strong>WebAssembly (ZXing-C++)</strong> decoding, cryptographically verified with SHA-256.
+              </p>
+            </div>
+
+            <!-- The 2 Decimen-Style Action Boxes in Luma Theme Colours -->
+            <div class="home-boxes-grid">
+              <!-- Box 1: SEND -->
+              <div class="home-action-box box-send" id="home-box-send" role="button" tabindex="0">
+                <div class="box-top-bar">
+                  <span class="box-badge font-mono">STEP 1 • TRANSMITTER</span>
+                  <span class="box-fps-pill font-mono text-neon-green">45 FPS MAX</span>
+                </div>
+                <div class="box-icon-wrap icon-send">
+                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                </div>
+                <h2 class="box-title">Send Files</h2>
+                <p class="box-desc">Select or drop any file to convert into a 45 FPS animated optical QR stream. Transmits data through your screen directly into another device's camera.</p>
+                <div class="box-action-btn btn btn-primary">
+                  <span>Open Transmitter</span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              </div>
+
+              <!-- Box 2: RECEIVE -->
+              <div class="home-action-box box-receive" id="home-box-receive" role="button" tabindex="0">
+                <div class="box-top-bar">
+                  <span class="box-badge font-mono">STEP 2 • RECEIVER</span>
+                  <span class="box-fps-pill font-mono text-neon-cyan">WASM SCANNER</span>
+                </div>
+                <div class="box-icon-wrap icon-receive">
+                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                </div>
+                <h2 class="box-title">Receive Files</h2>
+                <p class="box-desc">Point your device camera at the sending screen to capture the QR stream. Reconstructs files in real time with WebAssembly and verifies SHA-256 integrity.</p>
+                <div class="box-action-btn btn btn-accent">
+                  <span>Open Scanner</span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              </div>
+            </div>
+
+            <!-- Features Quick Bar -->
+            <div class="home-features-grid font-mono">
+              <div class="feature-pill">
+                <span class="feature-icon">⚡</span>
+                <div class="feature-content">
+                  <strong>45 FPS Max & Default</strong>
+                  <small>Optimized for optical reliability</small>
+                </div>
+              </div>
+              <div class="feature-pill">
+                <span class="feature-icon">🛡️</span>
+                <div class="feature-content">
+                  <strong>100% Air-Gapped</strong>
+                  <small>No radio emissions, zero servers</small>
+                </div>
+              </div>
+              <div class="feature-pill">
+                <span class="feature-icon">📦</span>
+                <div class="feature-content">
+                  <strong>Fountain Code FEC</strong>
+                  <small>Self-healing packet reconstruction</small>
+                </div>
+              </div>
+              <div class="feature-pill">
+                <span class="feature-icon">📐</span>
+                <div class="feature-content">
+                  <strong>16:9 & 9:16 Adaptive</strong>
+                  <small>Dynamic desktop & phone ratios</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- ================= SENDER VIEW ================= -->
-        <section id="sender-view" class="view-panel active">
+        <section id="sender-view" class="view-panel">
+          <div class="view-header-bar">
+            <button type="button" class="btn-back-home btn btn-xs btn-secondary font-mono">← Home Hub</button>
+            <span class="view-header-title font-mono text-neon-green">TRANSMITTER MODE • 45 FPS MAX</span>
+          </div>
           <div class="panel-grid">
             <!-- Left: Transmission Controls & Telemetry -->
             <div class="card sender-controls-card">
@@ -133,13 +240,13 @@
                 <div class="setting-item" id="timing-setting-item">
                   <label for="sender-fps-slider">
                     <span id="timing-label-text">Streaming Speed:</span>
-                    <span id="fps-label" class="setting-val val-speed font-mono">60 FPS</span>
+                    <span id="fps-label" class="setting-val val-speed font-mono">45 FPS</span>
                   </label>
-                  <input type="range" id="sender-fps-slider" min="1" max="60" value="60" step="1" />
+                  <input type="range" id="sender-fps-slider" min="1" max="45" value="45" step="1" />
                   <div class="slider-ticks" id="timing-slider-ticks">
                     <span>1 FPS (Safe)</span>
-                    <span>30 FPS (Fast)</span>
-                    <span>60 FPS (Decimen 60 FPS Turbo)</span>
+                    <span>24 FPS (Balanced)</span>
+                    <span>45 FPS (Max Speed)</span>
                   </div>
                 </div>
 
@@ -305,6 +412,10 @@
 
         <!-- ================= RECEIVER VIEW ================= -->
         <section id="receiver-view" class="view-panel">
+          <div class="view-header-bar">
+            <button type="button" class="btn-back-home btn btn-xs btn-secondary font-mono">← Home Hub</button>
+            <span class="view-header-title font-mono text-neon-cyan">RECEIVER MODE • WASM SCANNER</span>
+          </div>
           <div class="panel-grid">
             <!-- Left: Camera Viewfinder -->
             <div class="card receiver-camera-card">
@@ -335,8 +446,9 @@
                   <option value="9:16">9:16 Portrait</option>
                 </select>
                 <select id="camera-fps-select" class="form-select" style="width: auto; padding: 0.4rem 0.6rem;" title="Capture FPS">
-                  <option value="60" selected>60 FPS</option>
+                  <option value="45" selected>45 FPS (Max & Default)</option>
                   <option value="30">30 FPS</option>
+                  <option value="15">15 FPS</option>
                 </select>
                 <select id="camera-res-select" class="form-select" style="width: auto; padding: 0.4rem 0.6rem;" title="Capture Resolution">
                   <option value="1280" selected>1280px</option>
@@ -593,7 +705,34 @@
 
       <!-- Footer -->
       <footer class="app-footer">
-        <p>LumaAir • Air-Gapped Optical File Transfer • Zero Wi-Fi • Zero Bluetooth • Pure Light</p>
+        <div class="footer-inner">
+          <div class="footer-brand-section">
+            <div class="footer-logo-row">
+              <span class="footer-brand-name">LumaAir</span>
+              <span class="footer-version-tag font-mono">v3.0 OPTICAL</span>
+            </div>
+            <p class="footer-tagline">Air-Gapped Optical Simplex File Transfer Protocol • Pure Visible Light</p>
+          </div>
+
+          <div class="footer-creator-box">
+            <span class="creator-label font-mono">ENGINEERED & DESIGNED BY</span>
+            <span class="creator-name font-mono text-neon-green">Shriyansh Thanneeru</span>
+          </div>
+
+          <div class="footer-tech-stack font-mono">
+            <span class="f-pill">45 FPS Max & Default</span>
+            <span class="f-pill">WASM ZXing-C++ Decoder</span>
+            <span class="f-pill">Luby Transform (LT) Fountain Coding</span>
+            <span class="f-pill">End-to-End SHA-256 Verification</span>
+            <span class="f-pill">16:9 Landscape & 9:16 Portrait Adaptive</span>
+            <span class="f-pill">Zero Radio • 100% Offline Simplex</span>
+          </div>
+
+          <div class="footer-bottom-row font-mono">
+            <p class="footer-rights">© 2026 LumaAir. All rights reserved.</p>
+            <p class="footer-security-note">True Air-Gap Security • No Network Permission Required</p>
+          </div>
+        </div>
       </footer>
     </div>
 
