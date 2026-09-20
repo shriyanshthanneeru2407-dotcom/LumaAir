@@ -84,3 +84,88 @@ describe('Decimen Optical Transfer E2E Pipeline', () => {
     expect(valid).toBe(true);
   });
 });
+
+import { OpticalReceiver, ReconstructedFile } from '../src/core/receiver';
+import { readBarcodesFromImageData } from 'zxing-wasm/reader';
+
+describe('Decimen WASM QR & OpticalReceiver End-to-End', () => {
+  it('should decode 1465-byte QR code via zxing-wasm and reconstruct file via OpticalReceiver', async () => {
+    const rawContent = 'High-speed Decimen Optical Air-Gap Receiver Test Content! '.repeat(80);
+    const contentBytes = new TextEncoder().encode(rawContent);
+
+    const packed = await packFile('sample_test.txt', 'text/plain', contentBytes);
+    const blockLen = 1465 - 22; // 1443
+    const sessionId = 0x9876;
+    const encoder = new LTEncoder(packed.container, blockLen, sessionId);
+    const payloadFnv = fnv1a(packed.container);
+
+    let completedFile: ReconstructedFile | null = null;
+    const receiver = new OpticalReceiver({
+      onFileComplete: (f) => {
+        completedFile = f;
+      }
+    });
+
+    for (let s = 0; s < encoder.k; s++) {
+      const block = encoder.encode(s);
+      const wire = packFrame({
+        sessionId,
+        seq: s,
+        k: encoder.k,
+        blockLen,
+        totalLen: packed.container.length,
+        payloadFnv,
+        flags: 0,
+      }, block);
+
+      // Render QR
+      const qr = QRCode.create([{ data: wire, mode: 'byte' } as unknown as QRCode.QRCodeSegment], {
+        errorCorrectionLevel: 'L',
+        maskPattern: 4,
+      });
+
+      const mod = qr.modules.size;
+      const margin = 4;
+      const dim = (mod + 2 * margin) * 3;
+      const rgba = new Uint8ClampedArray(dim * dim * 4);
+      rgba.fill(255);
+
+      for (let r = 0; r < mod; r++) {
+        for (let c = 0; c < mod; c++) {
+          if (qr.modules.get(r, c)) {
+            for (let dy = 0; dy < 3; dy++) {
+              for (let dx = 0; dx < 3; dx++) {
+                const px = ((r + margin) * 3 + dy) * dim + ((c + margin) * 3 + dx);
+                rgba[px * 4] = 0;
+                rgba[px * 4 + 1] = 0;
+                rgba[px * 4 + 2] = 0;
+                rgba[px * 4 + 3] = 255;
+              }
+            }
+          }
+        }
+      }
+
+      // Decode with zxing-wasm
+      const results = await readBarcodesFromImageData({
+        data: rgba,
+        width: dim,
+        height: dim,
+        colorSpace: 'srgb' as PredefinedColorSpace,
+      } as ImageData, {
+        formats: ['QRCode'],
+        tryHarder: false,
+      });
+
+      expect(results.length).toBeGreaterThan(0);
+      const decodedBytes = results[0].bytes;
+      expect(decodedBytes.length).toBe(wire.length);
+
+      await receiver.handleRawBytes(decodedBytes);
+    }
+
+    expect(completedFile).not.toBeNull();
+    expect(completedFile!.fileName).toBe('sample_test.txt');
+    expect(completedFile!.fileSize).toBe(contentBytes.length);
+  });
+});

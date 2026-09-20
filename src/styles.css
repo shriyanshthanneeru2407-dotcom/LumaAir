@@ -884,7 +884,110 @@ input[type="range"] {
 #receiver-video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  display: block;
+}
+
+/* Decimen detect-overlay canvas sits directly on top of video */
+.detect-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Decimen Transfer HUD floating inside viewfinder */
+.transfer-hud {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 3;
+  padding: 40px 14px 12px;
+  background: linear-gradient(transparent, rgba(6, 9, 15, 0.95) 55%);
+  pointer-events: none;
+}
+
+.hud-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+}
+
+.hud-status-row strong {
+  color: var(--neon-green);
+  text-shadow: 0 0 6px var(--neon-green-glow);
+}
+
+.hud-status-row span {
+  color: var(--neon-cyan);
+}
+
+.hud-progress-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.hud-progress-bar {
+  height: 100%;
+  background: var(--neon-green);
+  box-shadow: 0 0 10px var(--neon-green);
+  transition: width 0.15s ease-out;
+}
+
+/* No-signal floating toast */
+.no-signal-toast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(14, 20, 32, 0.94);
+  border: 1px solid var(--neon-yellow);
+  box-shadow: 0 0 14px rgba(255, 217, 74, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 0.74rem;
+  color: var(--text-primary);
+  backdrop-filter: blur(8px);
+}
+
+.no-signal-btn {
+  background: transparent;
+  border: 1px solid var(--neon-yellow);
+  color: var(--neon-yellow);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.no-signal-btn:hover {
+  background: var(--neon-yellow);
+  color: #000000;
+}
+
+.no-signal-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.no-signal-dismiss:hover {
+  color: #ffffff;
 }
 
 .viewfinder-overlay {
@@ -894,67 +997,122 @@ input[type="range"] {
   align-items: center;
   justify-content: center;
   pointer-events: none;
-}
-
-.reticle {
-  position: relative;
-  width: 70%;
-  height: 70%;
-  border: 1px solid rgba(0, 255, 102, 0.2);
-}
-
-.reticle-corner {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border-color: var(--neon-green);
-  border-style: solid;
-}
-
-.reticle-corner.tl { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
-.reticle-corner.tr { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
-.reticle-corner.bl { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
-.reticle-corner.br { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
-
-.reticle-scanner {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--neon-green);
-  box-shadow: 0 0 10px var(--neon-green);
-  animation: scan-line 2s ease-in-out infinite;
-}
-
-@keyframes scan-line {
-  0% { top: 0%; opacity: 0; }
-  15% { opacity: 1; }
-  85% { opacity: 1; }
-  100% { top: 100%; opacity: 0; }
-}
-
-.batch-capture-badge {
-  position: absolute;
-  top: 15%;
-  background: #000000;
-  color: var(--neon-green);
-  border: 1.5px solid var(--neon-green);
-  box-shadow: 0 0 10px rgba(0, 255, 102, 0.4);
-  font-size: 0.76rem;
-  font-weight: 700;
-  padding: 4px 12px;
-  border-radius: var(--radius-sm);
+  z-index: 1;
 }
 
 .reticle-prompt {
   position: absolute;
-  bottom: 12px;
-  font-size: 0.76rem;
+  top: 12px;
+  font-size: 0.72rem;
   color: var(--neon-green);
   background: rgba(0, 0, 0, 0.75);
   padding: 3px 10px;
   border-radius: var(--radius-sm);
+  border: 1px solid rgba(0, 255, 102, 0.2);
+}
+
+/* Live Decimen Diagnostics Card */
+.diagnostics-card {
+  background: #080c14;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.diag-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.4rem;
+}
+
+.diag-link-idle {
+  color: var(--text-muted);
+}
+
+.diag-link-active {
+  color: var(--neon-green);
+  text-shadow: 0 0 6px var(--neon-green-glow);
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.65rem 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .diag-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.diag-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.diag-lbl {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.diag-num {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+/* Troubleshooting Modal Dialog */
+.help-dialog {
+  border: 1.5px solid var(--neon-green);
+  background: #080c14;
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 30px rgba(0, 255, 102, 0.25);
+  padding: 0;
+  max-width: 480px;
+  width: 90vw;
+}
+
+.help-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+}
+
+.dialog-inner {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.dialog-tips-list {
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.dialog-tips-list strong {
+  color: var(--text-primary);
 }
 
 .camera-placeholder {

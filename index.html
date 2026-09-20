@@ -327,33 +327,112 @@
                   Flip
                 </button>
                 <select id="camera-select" class="form-select camera-select" disabled>
-                  <option value="">Default Camera</option>
+                  <option value="">Auto Camera</option>
+                </select>
+                <select id="camera-fps-select" class="form-select" style="width: auto; padding: 0.4rem 0.6rem;" title="Capture FPS">
+                  <option value="60" selected>60 FPS</option>
+                  <option value="30">30 FPS</option>
+                </select>
+                <select id="camera-res-select" class="form-select" style="width: auto; padding: 0.4rem 0.6rem;" title="Capture Resolution">
+                  <option value="1280" selected>1280px</option>
+                  <option value="1920">1080p</option>
+                  <option value="960">960px</option>
                 </select>
               </div>
 
-              <!-- Video Stream Container -->
-              <div class="viewfinder-container">
+              <!-- Video Stream Container with Decimen Optical Scanner Viewfinder -->
+              <div class="viewfinder-container" id="viewfinder-container">
                 <video id="receiver-video" playsinline muted autoplay></video>
-                <div class="viewfinder-overlay" id="viewfinder-overlay">
-                  <div class="reticle">
-                    <div class="reticle-corner tl"></div>
-                    <div class="reticle-corner tr"></div>
-                    <div class="reticle-corner bl"></div>
-                    <div class="reticle-corner br"></div>
-                    <div class="reticle-scanner"></div>
+                <canvas id="detect-overlay" class="detect-overlay" aria-hidden="true"></canvas>
+
+                <!-- Floating Transfer HUD over video -->
+                <div class="transfer-hud" id="transfer-hud">
+                  <div class="hud-status-row font-mono">
+                    <strong id="hud-progress-label">0% · 0 frames</strong>
+                    <span id="hud-eta-label">Awaiting stream…</span>
                   </div>
+                  <div class="hud-progress-track">
+                    <div id="hud-progress-bar" class="hud-progress-bar" style="width: 0%"></div>
+                  </div>
+                </div>
+
+                <!-- Floating No Signal Toast -->
+                <div id="no-signal-toast" class="no-signal-toast hidden font-mono">
+                  <span>Nothing happening?</span>
+                  <button type="button" id="btn-no-signal-help" class="no-signal-btn text-neon-yellow">Tips</button>
+                  <button type="button" id="btn-no-signal-dismiss" class="no-signal-dismiss">✕</button>
+                </div>
+
+                <div class="viewfinder-overlay" id="viewfinder-overlay">
                   <div id="rec-batch-badge" class="batch-capture-badge hidden font-mono">⚡ Frame Captured!</div>
                   <p class="reticle-prompt" id="reticle-prompt-text">Point camera at sender QR stream</p>
                 </div>
+
                 <div id="camera-placeholder" class="camera-placeholder">
                   <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
                     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                     <circle cx="12" cy="13" r="4"/>
                   </svg>
                   <p>Click "Start Camera" to scan sender</p>
-                  <span>Direct optical stream decoding</span>
+                  <span>WASM high-density optical stream decoding</span>
                 </div>
               </div>
+
+              <!-- Decimen Live Diagnostics Telemetry Card -->
+              <div class="diagnostics-card font-mono">
+                <div class="diag-header">
+                  <span class="diag-title">⚡ LIVE OPTICAL TELEMETRY</span>
+                  <span id="diag-link-indicator" class="diag-link-idle">STANDBY</span>
+                </div>
+                <div class="diag-grid">
+                  <div class="diag-cell">
+                    <div class="diag-lbl">CAPTURE FPS</div>
+                    <div class="diag-num text-neon-green" id="m-cap-fps">--</div>
+                  </div>
+                  <div class="diag-cell">
+                    <div class="diag-lbl">DECODE FPS</div>
+                    <div class="diag-num text-neon-cyan" id="m-dec-fps">--</div>
+                  </div>
+                  <div class="diag-cell">
+                    <div class="diag-lbl">GOODPUT</div>
+                    <div class="diag-num text-neon-yellow" id="m-goodput">--</div>
+                  </div>
+                  <div class="diag-cell">
+                    <div class="diag-lbl">ELAPSED</div>
+                    <div class="diag-num text-neon-purple" id="m-elapsed">--</div>
+                  </div>
+                  <div class="diag-cell">
+                    <div class="diag-lbl">FRAMES NEW/DUP</div>
+                    <div class="diag-num text-white" id="m-frames-ratio">0 / 0</div>
+                  </div>
+                  <div class="diag-cell">
+                    <div class="diag-lbl">BLOCKS K</div>
+                    <div class="diag-num text-neon-orange" id="m-blocks-k">--</div>
+                  </div>
+                  <div class="diag-cell">
+                    <div class="diag-lbl">BLOCK LEN</div>
+                    <div class="diag-num text-neon-pink" id="m-block-len">--</div>
+                  </div>
+                  <div class="diag-cell">
+                    <div class="diag-lbl">PAYLOAD</div>
+                    <div class="diag-num text-neon-green" id="m-payload-size">--</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Scanning Tips Dialog -->
+              <dialog id="no-signal-dialog" class="help-dialog font-mono">
+                <div class="dialog-inner">
+                  <h3 class="dialog-title text-neon-green">Scanning Tips</h3>
+                  <ul class="dialog-tips-list">
+                    <li><strong>Screen Brightness:</strong> Set sender screen brightness to 100%.</li>
+                    <li><strong>Fill Viewfinder:</strong> Position camera so the QR code fills 60%–80% of the box.</li>
+                    <li><strong>Steady Camera:</strong> Hold steady and avoid reflections or harsh glares.</li>
+                    <li><strong>Frame Density:</strong> If sender is at 2953B and camera is blurry, lower sender density to 1465B or 1000B.</li>
+                  </ul>
+                  <button type="button" id="no-signal-close-btn" class="btn btn-sm btn-primary">Got It</button>
+                </div>
+              </dialog>
             </div>
 
             <!-- Right: Reconstruction & Reception Dashboard -->

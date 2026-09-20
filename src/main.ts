@@ -521,6 +521,31 @@ const btnDownloadFile = document.getElementById('btn-download-file') as HTMLButt
 const downloadSizeBadge = document.getElementById('download-size-badge') as HTMLSpanElement;
 const btnReceiveAnother = document.getElementById('btn-receive-another') as HTMLButtonElement;
 
+// Decimen scanner HUD & overlay elements
+const detectOverlay = document.getElementById('detect-overlay') as HTMLCanvasElement;
+const hudProgressLabel = document.getElementById('hud-progress-label') as HTMLElement | null;
+const hudEtaLabel = document.getElementById('hud-eta-label') as HTMLElement | null;
+const hudProgressBar = document.getElementById('hud-progress-bar') as HTMLElement | null;
+
+const noSignalToast = document.getElementById('no-signal-toast') as HTMLElement | null;
+const btnNoSignalHelp = document.getElementById('btn-no-signal-help') as HTMLButtonElement | null;
+const btnNoSignalDismiss = document.getElementById('btn-no-signal-dismiss') as HTMLButtonElement | null;
+const noSignalDialog = document.getElementById('no-signal-dialog') as HTMLDialogElement | null;
+const noSignalCloseBtn = document.getElementById('no-signal-close-btn') as HTMLButtonElement | null;
+
+const cameraFpsSelect = document.getElementById('camera-fps-select') as HTMLSelectElement | null;
+const cameraResSelect = document.getElementById('camera-res-select') as HTMLSelectElement | null;
+
+const mCapFps = document.getElementById('m-cap-fps') as HTMLElement | null;
+const mDecFps = document.getElementById('m-dec-fps') as HTMLElement | null;
+const mGoodput = document.getElementById('m-goodput') as HTMLElement | null;
+const mElapsed = document.getElementById('m-elapsed') as HTMLElement | null;
+const mFramesRatio = document.getElementById('m-frames-ratio') as HTMLElement | null;
+const mBlocksK = document.getElementById('m-blocks-k') as HTMLElement | null;
+const mBlockLen = document.getElementById('m-block-len') as HTMLElement | null;
+const mPayloadSize = document.getElementById('m-payload-size') as HTMLElement | null;
+const diagLinkIndicator = document.getElementById('diag-link-indicator') as HTMLElement | null;
+
 let isCameraActive = false;
 let currentFacingMode: 'environment' | 'user' = 'environment';
 let availableCameras: MediaDeviceInfo[] = [];
@@ -532,31 +557,90 @@ const receiver = new OpticalReceiver({
       case 'IDLE':
         receiverStatusDot.classList.add('dot-idle');
         receiverStatusText.textContent = 'Camera Off';
+        if (diagLinkIndicator) {
+          diagLinkIndicator.className = 'diag-link-idle';
+          diagLinkIndicator.textContent = 'STANDBY';
+        }
         break;
       case 'STARTING':
         receiverStatusDot.classList.add('dot-paused');
         receiverStatusText.textContent = 'Starting Camera...';
+        if (diagLinkIndicator) {
+          diagLinkIndicator.className = 'diag-link-idle';
+          diagLinkIndicator.textContent = 'STARTING';
+        }
         break;
       case 'SCANNING':
         receiverStatusDot.classList.add('dot-active');
         receiverStatusText.textContent = 'Scanning for QR Frames...';
+        if (diagLinkIndicator) {
+          diagLinkIndicator.className = 'diag-link-idle';
+          diagLinkIndicator.textContent = 'SCANNING';
+        }
         break;
       case 'RECEIVING':
         receiverStatusDot.classList.add('dot-active');
         receiverStatusText.textContent = 'Capturing Fountain Stream';
+        if (diagLinkIndicator) {
+          diagLinkIndicator.className = 'diag-link-active';
+          diagLinkIndicator.textContent = 'LINK ACTIVE';
+        }
         break;
       case 'COMPLETE':
         receiverStatusDot.classList.add('dot-active');
         receiverStatusText.textContent = 'Transfer Complete!';
+        if (diagLinkIndicator) {
+          diagLinkIndicator.className = 'diag-link-active';
+          diagLinkIndicator.textContent = 'COMPLETE';
+        }
         break;
       case 'ERROR':
         receiverStatusDot.classList.add('dot-error');
         receiverStatusText.textContent = detail || 'Error';
+        if (diagLinkIndicator) {
+          diagLinkIndicator.className = 'diag-link-idle';
+          diagLinkIndicator.textContent = 'ERROR';
+        }
         break;
     }
   },
   onProgress: (progress: ReceiverProgress, header: FrameHeader | null) => {
     updateReceiverDashboard(progress, header);
+  },
+  onDiagnostics: (diag) => {
+    if (mCapFps) mCapFps.textContent = `${diag.captureFps}`;
+    if (mDecFps) mDecFps.textContent = `${diag.decodeFps}`;
+    if (mGoodput) mGoodput.textContent = diag.goodput > 0 ? `${(diag.goodput / 1024).toFixed(1)} KB/s` : '--';
+    if (mElapsed) mElapsed.textContent = `${diag.elapsed.toFixed(1)}s`;
+    if (mFramesRatio) mFramesRatio.textContent = `${diag.framesNew} / ${diag.framesDup}`;
+    if (mBlocksK) mBlocksK.textContent = diag.blocksK > 0 ? `${diag.blocksK}` : '--';
+    if (mBlockLen) mBlockLen.textContent = `${diag.blockLen} B`;
+    if (mPayloadSize) mPayloadSize.textContent = diag.transferBytes > 0 ? formatBytes(diag.transferBytes) : '--';
+
+    // In-viewfinder HUD
+    if (hudProgressLabel) {
+      hudProgressLabel.textContent = `${diag.progressPercent}% · ${diag.framesNew} frames`;
+    }
+    if (hudEtaLabel) {
+      if (diag.etaSeconds !== null && diag.etaSeconds > 0) {
+        hudEtaLabel.textContent = `~${diag.etaSeconds}s remaining`;
+      } else if (diag.etaSeconds === 0) {
+        hudEtaLabel.textContent = 'Verifying SHA-256…';
+      } else if (diag.blocksK > 0) {
+        hudEtaLabel.textContent = 'Solving fountain…';
+      } else {
+        hudEtaLabel.textContent = 'Awaiting stream…';
+      }
+    }
+    if (hudProgressBar) {
+      hudProgressBar.style.width = `${diag.progressPercent}%`;
+    }
+  },
+  onNoSignal: (visible: boolean) => {
+    if (noSignalToast) {
+      if (visible) noSignalToast.classList.remove('hidden');
+      else noSignalToast.classList.add('hidden');
+    }
   },
   onFileComplete: (reconstructed: ReconstructedFile) => {
     displayReconstructedFile(reconstructed);
@@ -686,7 +770,11 @@ btnReceiverReset.addEventListener('click', () => {
 async function startCameraSession() {
   try {
     const selectedDeviceId = cameraSelect.value || undefined;
-    await receiver.startCamera(receiverVideo, selectedDeviceId, currentFacingMode);
+    const idealFps = cameraFpsSelect ? Number(cameraFpsSelect.value) : 60;
+    const idealWidth = cameraResSelect ? Number(cameraResSelect.value) : 1280;
+
+    receiver.setOverlayCanvas(detectOverlay);
+    await receiver.startCamera(receiverVideo, selectedDeviceId, currentFacingMode, detectOverlay, idealWidth, idealFps);
     isCameraActive = true;
     cameraBtnText.textContent = 'Stop Camera';
     cameraPlaceholder.classList.add('hidden');
@@ -698,6 +786,11 @@ async function startCameraSession() {
     availableCameras = await receiver.getAvailableCameras();
     if (availableCameras.length > 0 && cameraSelect.options.length <= 1) {
       cameraSelect.innerHTML = '';
+      const autoOpt = document.createElement('option');
+      autoOpt.value = '';
+      autoOpt.textContent = 'Auto Camera';
+      cameraSelect.appendChild(autoOpt);
+
       availableCameras.forEach((cam, idx) => {
         const opt = document.createElement('option');
         opt.value = cam.deviceId;
@@ -717,7 +810,46 @@ function stopCameraSession() {
   cameraPlaceholder.classList.remove('hidden');
   btnCameraFlip.disabled = true;
   cameraSelect.disabled = true;
+  if (noSignalToast) noSignalToast.classList.add('hidden');
 }
+
+// Aspect ratio synchronization to eliminate letterboxing/cropping
+receiverVideo.addEventListener('resize', () => {
+  if (receiverVideo.videoWidth && receiverVideo.videoHeight) {
+    const container = document.getElementById('viewfinder-container');
+    if (container) {
+      container.style.aspectRatio = `${receiverVideo.videoWidth} / ${receiverVideo.videoHeight}`;
+    }
+  }
+});
+
+// No Signal toast and tips dialog
+btnNoSignalHelp?.addEventListener('click', () => {
+  noSignalDialog?.showModal();
+});
+btnNoSignalDismiss?.addEventListener('click', () => {
+  noSignalToast?.classList.add('hidden');
+});
+noSignalCloseBtn?.addEventListener('click', () => {
+  noSignalDialog?.close();
+});
+noSignalDialog?.addEventListener('click', (e) => {
+  if (e.target === noSignalDialog) noSignalDialog.close();
+});
+
+cameraFpsSelect?.addEventListener('change', async () => {
+  if (isCameraActive) {
+    stopCameraSession();
+    await startCameraSession();
+  }
+});
+
+cameraResSelect?.addEventListener('change', async () => {
+  if (isCameraActive) {
+    stopCameraSession();
+    await startCameraSession();
+  }
+});
 
 btnCameraToggle.addEventListener('click', () => {
   if (isCameraActive) {
