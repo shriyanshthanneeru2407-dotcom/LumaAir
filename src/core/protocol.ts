@@ -111,7 +111,7 @@ export function getFileExtension(filename: string): string {
 
 export function createPairingPacket(
   transferId: string,
-  deviceName: string = 'Luma Terminal',
+  deviceName: string = 'LumaAir',
   gridMode: string = '1x1',
   moduleCount: number = 1
 ): DevicePairPacket {
@@ -208,7 +208,7 @@ export function parsePacket(rawString: string): ProtocolPacket | null {
           type: 'DEVICE_PAIR',
           protocol_version: obj.protocol_version || PROTOCOL_VERSION,
           transfer_id: obj.transfer_id,
-          device_name: obj.device_name || 'Luma Terminal',
+          device_name: obj.device_name || 'LumaAir',
           grid_mode: obj.grid_mode || '1x1',
           module_count: obj.module_count || 1,
           timestamp: obj.timestamp || Date.now()
@@ -316,7 +316,7 @@ export class TransferAssembler {
     if (packet.type === 'DEVICE_PAIR') {
       const wasPaired = this.isPaired;
       this.isPaired = true;
-      this.pairedDeviceName = packet.device_name || 'Luma Terminal';
+      this.pairedDeviceName = packet.device_name || 'LumaAir';
       return { accepted: true, isNew: !wasPaired, isComplete: false, packetType: 'DEVICE_PAIR' };
     } else if (packet.type === 'TRANSFER_START') {
       if (!this.header) {

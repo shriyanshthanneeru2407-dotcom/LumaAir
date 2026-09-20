@@ -3,45 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>DECIMEN // OPTICAL AIR-GAP TRANSFER</title>
+    <title>LumaAir — Optical Air-Gap Transfer</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300ff66' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='5' height='5' x='3' y='3'/><rect width='5' height='5' x='16' y='3'/><rect width='5' height='5' x='3' y='16'/><path d='M21 16h-3a2 2 0 0 0-2 2v3'/><path d='M21 21v.01'/></svg>" />
-    <!-- Typewriter Fonts: Space Mono & VT323 & Courier Prime -->
+    <!-- Comfortable modern fonts: Plus Jakarta Sans for UI + JetBrains Mono & Space Mono for code -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=VT323&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
     <div id="app" class="app-container">
-      <!-- Terminal Header -->
+      <!-- Modern Minimalist Header -->
       <header class="app-header">
         <div class="logo-area">
           <div class="logo-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <rect width="6" height="6" x="2" y="2" />
-              <rect width="6" height="6" x="16" y="2" />
-              <rect width="6" height="6" x="2" y="16" />
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="6" height="6" x="2" y="2" rx="1" />
+              <rect width="6" height="6" x="16" y="2" rx="1" />
+              <rect width="6" height="6" x="2" y="16" rx="1" />
               <path d="M16 16h2v2h-2z" />
               <path d="M20 20h2v2h-2z" />
               <path d="M10 10h4v4h-4z" />
             </svg>
           </div>
           <div>
-            <h1 class="logo-title">DECIMEN <span class="badge-phase">AIR-GAP OPTICAL</span></h1>
-            <p class="logo-subtitle">&gt; Screen-to-camera optical stream. Zero radio. Pure light.</p>
+            <h1 class="logo-title">LumaAir <span class="badge-phase">Optical Transfer</span></h1>
+            <p class="logo-subtitle">Cross-device air-gapped optical stream. Zero radio. Pure light.</p>
           </div>
         </div>
 
         <!-- Navigation Tabs -->
         <nav class="nav-tabs" role="tablist">
           <button class="nav-tab active" id="tab-sender" data-tab="sender-view" role="tab" aria-selected="true">
-            [ SENDER ]
+            <span class="tab-dot"></span> Sender
           </button>
           <button class="nav-tab" id="tab-receiver" data-tab="receiver-view" role="tab" aria-selected="false">
-            [ RECEIVER ]
+            <span class="tab-dot"></span> Receiver
           </button>
           <button class="nav-tab" id="tab-sandbox" data-tab="sandbox-view" role="tab" aria-selected="false">
-            [ SELF-TEST ]
+            <span class="tab-dot"></span> Self-Test
           </button>
         </nav>
       </header>
@@ -56,73 +56,74 @@
               <!-- Optical Handshake -->
               <div class="pairing-banner-card" id="sender-pairing-banner">
                 <div class="pairing-banner-info">
-                  <span class="pairing-banner-badge">[STEP 01] OPTICAL HANDSHAKE</span>
-                  <h3 class="pairing-banner-title">PAIR TRANSMITTER</h3>
-                  <p class="pairing-banner-desc">&gt; Aim receiving device at pairing beacon to sync crypto session</p>
+                  <span class="pairing-banner-badge">STEP 1 • OPTICAL HANDSHAKE</span>
+                  <h3 class="pairing-banner-title">Connect Devices</h3>
+                  <p class="pairing-banner-desc">Aim receiver camera at pairing beacon to sync transfer session</p>
                 </div>
                 <button type="button" id="btn-sender-pair" class="btn btn-sm btn-accent">
-                  <span>[ PAIR BEACON ]</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  <span>Pair Beacon</span>
                 </button>
               </div>
 
-              <h2 class="card-title">&gt; FILE SELECTOR</h2>
+              <h2 class="card-title">Select File Payload</h2>
               
               <label class="dropzone" id="file-dropzone" for="file-input">
                 <input type="file" id="file-input" class="file-input-hidden" />
                 <div class="dropzone-content">
-                  <svg class="dropzone-icon" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <svg class="dropzone-icon" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="17 8 12 3 7 8"/>
                     <line x1="12" y1="3" x2="12" y2="15"/>
                   </svg>
-                  <p class="dropzone-text"><strong>DRAG &amp; DROP FILE</strong> or click to browse</p>
-                  <span class="dropzone-hint">&gt; Any payload: images, archives, docs, executables</span>
+                  <p class="dropzone-text"><strong>Click to browse</strong> or drag & drop a file</p>
+                  <span class="dropzone-hint">Supports any file: photos, documents, archives, code</span>
                   <div class="dropzone-action">
-                    <span class="btn btn-sm btn-primary">[ BROWSE STORAGE ]</span>
+                    <span class="btn btn-sm btn-primary">Browse Files</span>
                   </div>
                 </div>
               </label>
 
               <!-- Quick Test Files -->
               <div class="quick-samples-bar">
-                <span class="quick-samples-label">DEMO BENCHMARKS:</span>
+                <span class="quick-samples-label">Demo samples:</span>
                 <div class="sample-file-buttons">
-                  <button type="button" id="btn-sender-sample-txt" class="btn btn-xs btn-secondary">[ SAMPLE TXT (1.2KB) ]</button>
-                  <button type="button" id="btn-sender-sample-img" class="btn btn-xs btn-secondary">[ SAMPLE PNG (3.5KB) ]</button>
+                  <button type="button" id="btn-sender-sample-txt" class="btn btn-xs btn-secondary">Sample Text (1.2 KB)</button>
+                  <button type="button" id="btn-sender-sample-img" class="btn btn-xs btn-secondary">Sample Image (3.5 KB)</button>
                 </div>
               </div>
 
               <!-- Status / Error Notification banner -->
               <div id="sender-alert" class="alert-box hidden"></div>
 
-              <!-- File Metadata Terminal Stats -->
+              <!-- File Metadata Telemetry Stats -->
               <div id="sender-file-info" class="file-info-box hidden">
                 <div class="file-info-row">
-                  <span class="info-label">TARGET:</span>
+                  <span class="info-label">File Name:</span>
                   <span id="sender-file-name" class="info-value font-mono">-</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">EXT / MIME:</span>
+                  <span class="info-label">Format / Ext:</span>
                   <span id="sender-file-ext" class="info-value font-mono text-neon-cyan">-</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">PAYLOAD SIZE:</span>
+                  <span class="info-label">Payload Size:</span>
                   <span id="sender-file-size" class="info-value font-mono text-neon-yellow">-</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">SESSION ID:</span>
+                  <span class="info-label">Session ID:</span>
                   <span id="sender-transfer-id" class="info-value font-mono text-neon-purple">-</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">TOTAL FRAMES:</span>
+                  <span class="info-label">Total Frames:</span>
                   <span id="sender-frame-count" class="info-value font-mono text-neon-orange">-</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">PROTOCOL STRUCT:</span>
+                  <span class="info-label">Frame Structure:</span>
                   <span id="sender-total-frames-desc" class="info-value font-mono">-</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">CYCLE ESTIMATE:</span>
+                  <span class="info-label">Estimated Cycle:</span>
                   <span id="sender-cycle-time" class="info-value font-mono text-neon-green">-</span>
                 </div>
               </div>
@@ -131,23 +132,23 @@
               <div class="settings-group">
                 <div class="setting-item" id="timing-setting-item">
                   <label for="sender-fps-slider">
-                    <span id="timing-label-text">FLASH RATE:</span>
+                    <span id="timing-label-text">Streaming Speed:</span>
                     <span id="fps-label" class="setting-val val-speed font-mono">6 FPS</span>
                   </label>
                   <input type="range" id="sender-fps-slider" min="1" max="15" value="6" step="1" />
                   <div class="slider-ticks" id="timing-slider-ticks">
                     <span>1 FPS (Slow)</span>
-                    <span>6 FPS (Decimen Optimal)</span>
+                    <span>6 FPS (Recommended)</span>
                     <span>15 FPS (Turbo)</span>
                   </div>
                 </div>
 
                 <div class="setting-item">
-                  <label for="chunk-size-select">PAYLOAD DENSITY (bytes/QR):</label>
+                  <label for="chunk-size-select">Payload Density (bytes/QR):</label>
                   <select id="chunk-size-select" class="form-select font-mono">
-                    <option value="150">150 BYTES — High fault-tolerance / low light</option>
-                    <option value="250" selected>250 BYTES — Balanced throughput (Recommended)</option>
-                    <option value="380">380 BYTES — Maximum bandwidth (1080p cameras)</option>
+                    <option value="150">150 Bytes — Safe / low lighting</option>
+                    <option value="250" selected>250 Bytes — Balanced throughput (Recommended)</option>
+                    <option value="380">380 Bytes — High bandwidth (1080p cameras)</option>
                   </select>
                 </div>
               </div>
@@ -155,49 +156,49 @@
               <!-- Playback Controls -->
               <div class="playback-controls">
                 <button id="btn-sender-start" class="btn btn-primary" disabled>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  <span>START STREAM</span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span>Start Stream</span>
                 </button>
                 <button id="btn-sender-pause" class="btn btn-secondary" disabled>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                  <span>PAUSE</span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                  <span>Pause</span>
                 </button>
                 <button id="btn-sender-stop" class="btn btn-danger" disabled>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
-                  <span>ABORT</span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+                  <span>Stop</span>
                 </button>
               </div>
 
               <!-- Step Controls -->
               <div class="step-controls">
-                <button id="btn-sender-prev" class="btn btn-sm btn-ghost font-mono" disabled title="Previous frame">&lt;&lt; PREV FRAME</button>
-                <button id="btn-sender-next" class="btn btn-sm btn-ghost font-mono" disabled title="Next frame">NEXT FRAME &gt;&gt;</button>
+                <button id="btn-sender-prev" class="btn btn-sm btn-ghost font-mono" disabled title="Previous frame">⏮ Prev Frame</button>
+                <button id="btn-sender-next" class="btn btn-sm btn-ghost font-mono" disabled title="Next frame">Next Frame ⏭</button>
               </div>
             </div>
 
             <!-- Right: Single High-Speed Animated Optical Screen -->
             <div class="card sender-display-card">
               <div class="display-header">
-                <h2 class="card-title">&gt; OPTICAL EMITTER</h2>
+                <h2 class="card-title">Optical Emitter Display</h2>
                 <div class="display-header-actions">
                   <button type="button" id="btn-fullscreen-toggle" class="btn btn-sm btn-secondary btn-fullscreen" title="Full Screen View">
-                    <svg class="icon-expand" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg class="icon-expand" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <polyline points="15 3 21 3 21 9"></polyline>
                       <polyline points="9 21 3 21 3 15"></polyline>
                       <line x1="21" y1="3" x2="14" y2="10"></line>
                       <line x1="3" y1="21" x2="10" y2="14"></line>
                     </svg>
-                    <svg class="icon-compress hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg class="icon-compress hidden" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <polyline points="4 14 10 14 10 20"></polyline>
                       <polyline points="20 10 14 10 14 4"></polyline>
                       <line x1="14" y1="10" x2="21" y2="3"></line>
                       <line x1="3" y1="21" x2="10" y2="14"></line>
                     </svg>
-                    <span id="fullscreen-btn-text">[ FULLSCREEN ]</span>
+                    <span id="fullscreen-btn-text">Full Screen</span>
                   </button>
                   <div class="status-indicator">
                     <span id="sender-status-dot" class="status-dot dot-idle"></span>
-                    <span id="sender-status-text" class="status-text font-mono">STANDBY</span>
+                    <span id="sender-status-text" class="status-text font-mono">Ready</span>
                   </div>
                 </div>
               </div>
@@ -206,10 +207,10 @@
                 <div class="frame-type-bar font-mono">
                   <div class="frame-bar-left">
                     <span class="info-label">STATUS:</span>
-                    <span id="sender-frame-type-badge" class="badge-frame-type type-idle">AWAITING_INPUT</span>
+                    <span id="sender-frame-type-badge" class="badge-frame-type type-idle">Waiting for file...</span>
                   </div>
                   <div class="frame-bar-right">
-                    <span id="sender-page-badge" class="badge-page-indicator font-mono">FRAME 000 / 000</span>
+                    <span id="sender-page-badge" class="badge-page-indicator font-mono">Frame 0 / 0</span>
                   </div>
                 </div>
 
@@ -217,38 +218,37 @@
                 <div class="qr-frame-wrapper" id="qr-wrapper">
                   <!-- Floating exit button for fullscreen -->
                   <button type="button" id="btn-fullscreen-exit" class="btn-fullscreen-exit hidden" title="Exit Full Screen (Esc)">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    <span>EXIT FULLSCREEN</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    <span>Exit Full Screen</span>
                   </button>
 
                   <div id="qr-grid-matrix" class="qr-grid-matrix">
-                    <!-- Single high-res canvas injected dynamically -->
                     <canvas id="sender-single-canvas" class="qr-single-canvas" width="440" height="440"></canvas>
                   </div>
 
                   <div id="sender-placeholder" class="qr-placeholder">
-                    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                    <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
                       <rect width="18" height="18" x="3" y="3" rx="2"/>
                       <path d="M8 8h8v8H8z"/>
                     </svg>
-                    <p class="placeholder-main">LOAD PAYLOAD TO COMMENCE OPTICAL STREAM</p>
-                    <span class="placeholder-sub">&gt; Flashing fountain QR emitter — direct light transmission</span>
+                    <p class="placeholder-main">Select a file to start optical transfer</p>
+                    <span class="placeholder-sub">Rapid optical stream — transmits data directly through light</span>
                   </div>
 
                   <!-- Floating navigation bar in fullscreen with all 5 controls -->
                   <div id="fullscreen-controls-bar" class="fullscreen-controls-bar hidden">
                     <div class="fs-controls-group">
                       <button type="button" id="btn-fs-start" class="btn btn-sm btn-primary" title="Start Transmission" disabled>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                        <span>START</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <span>Start</span>
                       </button>
                       <button type="button" id="btn-fs-pause" class="btn btn-sm btn-secondary" title="Pause Transmission" disabled>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                        <span>PAUSE</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                        <span>Pause</span>
                       </button>
                       <button type="button" id="btn-fs-stop" class="btn btn-sm btn-danger" title="Stop Transmission" disabled>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
-                        <span>STOP</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+                        <span>Stop</span>
                       </button>
                     </div>
 
@@ -256,31 +256,31 @@
 
                     <div class="fs-controls-group">
                       <button type="button" id="btn-fs-prev" class="btn btn-sm btn-ghost font-mono" title="Previous Frame" disabled>
-                        &lt;&lt; PREV
+                        ⏮ Prev
                       </button>
                       <button type="button" id="btn-fs-next" class="btn btn-sm btn-ghost font-mono" title="Next Frame" disabled>
-                        NEXT &gt;&gt;
+                        Next ⏭
                       </button>
                     </div>
 
                     <div class="fs-divider"></div>
 
-                    <span id="fs-page-indicator" class="fs-page-badge font-mono text-neon-green">FRAME 000 / 000</span>
+                    <span id="fs-page-indicator" class="fs-page-badge font-mono text-neon-green">Frame 0 / 0</span>
                   </div>
                 </div>
 
                 <!-- Live Multi-Color Telemetry Bar -->
                 <div class="telemetry-bar">
                   <div class="telemetry-item">
-                    <span class="telemetry-label font-mono">FRAME IDX:</span>
+                    <span class="telemetry-label font-mono">FRAME:</span>
                     <span id="sender-frame-indicator" class="telemetry-val val-frames font-mono">0 / 0</span>
                   </div>
                   <div class="telemetry-item">
-                    <span class="telemetry-label font-mono">EMIT RATE:</span>
+                    <span class="telemetry-label font-mono">SPEED:</span>
                     <span id="sender-slots-indicator" class="telemetry-val val-speed font-mono">6 FPS</span>
                   </div>
                   <div class="telemetry-item">
-                    <span class="telemetry-label font-mono">COMPLETION:</span>
+                    <span class="telemetry-label font-mono">PROGRESS:</span>
                     <span id="sender-pct-indicator" class="telemetry-val val-pct font-mono">0%</span>
                   </div>
                   <div class="telemetry-item">
@@ -293,8 +293,8 @@
                   <div id="sender-progress-fill" class="progress-fill" style="width: 0%"></div>
                 </div>
 
-                <p class="scan-instruction font-mono" id="scan-instruction-text">
-                  &gt; Point receiver camera directly at the single QR stream. Frames are captured in real-time.
+                <p class="scan-instruction" id="scan-instruction-text">
+                  Point the receiver phone camera at the QR code screen to capture stream in real-time.
                 </p>
               </div>
             </div>
@@ -307,25 +307,25 @@
             <!-- Left: Camera Viewfinder -->
             <div class="card receiver-camera-card">
               <div class="display-header">
-                <h2 class="card-title">&gt; OPTICAL SENSOR [CAMERA]</h2>
+                <h2 class="card-title">Camera Viewfinder</h2>
                 <div class="status-indicator">
                   <span id="receiver-status-dot" class="status-dot dot-idle"></span>
-                  <span id="receiver-status-text" class="status-text font-mono">STANDBY</span>
+                  <span id="receiver-status-text" class="status-text font-mono">Camera Off</span>
                 </div>
               </div>
 
               <!-- Camera Controls -->
               <div class="camera-toolbar">
-                <button id="btn-camera-toggle" class="btn btn-primary font-mono">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                  <span id="camera-btn-text">[ START CAMERA ]</span>
+                <button id="btn-camera-toggle" class="btn btn-primary">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  <span id="camera-btn-text">Start Camera</span>
                 </button>
-                <button id="btn-camera-flip" class="btn btn-secondary font-mono" disabled title="Switch front/rear camera">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8v3"/><polyline points="7 10 4 13 1 10"/><path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8v-3"/><polyline points="17 14 20 11 23 14"/></svg>
-                  [ FLIP ]
+                <button id="btn-camera-flip" class="btn btn-secondary" disabled title="Switch front/rear camera">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8v3"/><polyline points="7 10 4 13 1 10"/><path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8v-3"/><polyline points="17 14 20 11 23 14"/></svg>
+                  Flip
                 </button>
-                <select id="camera-select" class="form-select camera-select font-mono" disabled>
-                  <option value="">Default Optical Sensor</option>
+                <select id="camera-select" class="form-select camera-select" disabled>
+                  <option value="">Default Camera</option>
                 </select>
               </div>
 
@@ -340,16 +340,16 @@
                     <div class="reticle-corner br"></div>
                     <div class="reticle-scanner"></div>
                   </div>
-                  <div id="rec-batch-badge" class="batch-capture-badge hidden font-mono">⚡ FRAME INGESTED</div>
-                  <p class="reticle-prompt font-mono" id="reticle-prompt-text">&gt; Align single flashing QR stream inside reticle</p>
+                  <div id="rec-batch-badge" class="batch-capture-badge hidden font-mono">⚡ Frame Captured!</div>
+                  <p class="reticle-prompt" id="reticle-prompt-text">Point camera at sender QR stream</p>
                 </div>
-                <div id="camera-placeholder" class="camera-placeholder font-mono">
-                  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                <div id="camera-placeholder" class="camera-placeholder">
+                  <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
                     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                     <circle cx="12" cy="13" r="4"/>
                   </svg>
-                  <p>[ SENSOR OFFLINE ]</p>
-                  <span>Click "START CAMERA" to lock optical frequency</span>
+                  <p>Click "Start Camera" to scan sender</p>
+                  <span>Direct optical stream decoding</span>
                 </div>
               </div>
             </div>
@@ -357,46 +357,46 @@
             <!-- Right: Reconstruction & Reception Dashboard -->
             <div class="card receiver-dashboard-card">
               <div class="display-header">
-                <h2 class="card-title">&gt; DECODER TELEMETRY</h2>
-                <button id="btn-receiver-reset" class="btn btn-sm btn-ghost font-mono" title="Reset receiver state">[ PURGE ]</button>
+                <h2 class="card-title">Incoming Transfer Progress</h2>
+                <button id="btn-receiver-reset" class="btn btn-sm btn-ghost" title="Reset receiver state">Reset</button>
               </div>
 
               <!-- Live File Reception Stats -->
               <div id="receiver-file-stats" class="file-info-box">
                 <div class="file-info-row pairing-status-row">
-                  <span class="info-label">CRYPTO BEACON:</span>
+                  <span class="info-label">Device Link:</span>
                   <span id="rec-pairing-status" class="badge-pairing-state unlinked font-mono">
                     <span class="pairing-dot"></span>
-                    <span id="rec-pairing-text">UNLINKED (SCAN BEACON)</span>
+                    <span id="rec-pairing-text">Unlinked (Scan Beacon)</span>
                   </span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">SESSION ID:</span>
-                  <span id="rec-session-id" class="info-value font-mono text-neon-purple">UNLOCKED</span>
+                  <span class="info-label">Session ID:</span>
+                  <span id="rec-session-id" class="info-value font-mono text-neon-purple">Unlocked</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">STREAM STATUS:</span>
-                  <span id="rec-protocol-status" class="info-value font-mono text-neon-cyan">AWAITING_HEADER</span>
+                  <span class="info-label">Protocol Status:</span>
+                  <span id="rec-protocol-status" class="info-value font-mono text-neon-cyan">Awaiting Header</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">OPTICAL MODE:</span>
-                  <span id="rec-multi-ingestion" class="info-value font-mono text-neon-green">DECIMEN SINGLE-STREAM</span>
+                  <span class="info-label">Optical Stream:</span>
+                  <span id="rec-multi-ingestion" class="info-value font-mono text-neon-green">LumaAir Single-Stream Ready</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">PAYLOAD NAME:</span>
-                  <span id="rec-file-name" class="info-value font-mono">---</span>
+                  <span class="info-label">Payload Name:</span>
+                  <span id="rec-file-name" class="info-value font-mono">Waiting for stream...</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">BYTE COUNT:</span>
+                  <span class="info-label">Byte Count:</span>
                   <span id="rec-file-size" class="info-value font-mono text-neon-yellow">-</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">CHUNKS INGESTED:</span>
+                  <span class="info-label">Chunks Received:</span>
                   <span id="rec-chunk-count" class="info-value font-mono text-neon-orange">0 / 0 (0%)</span>
                 </div>
                 <div class="file-info-row">
-                  <span class="info-label">MISSING FRAMES:</span>
-                  <span id="rec-missing-chunks" class="info-value font-mono text-warning">NONE</span>
+                  <span class="info-label">Missing Frames:</span>
+                  <span id="rec-missing-chunks" class="info-value font-mono text-warning">None</span>
                 </div>
               </div>
 
@@ -404,15 +404,15 @@
               <div id="rec-rejected-alert" class="alert-box alert-warning hidden font-mono"></div>
 
               <!-- Progress bar -->
-              <div class="progress-track" style="height: 10px;">
+              <div class="progress-track" style="height: 8px;">
                 <div id="rec-progress-fill" class="progress-fill" style="width: 0%"></div>
               </div>
 
               <!-- Visual Bit-Torrent style Chunk Matrix -->
               <div class="chunk-matrix-container">
                 <div class="matrix-header font-mono">
-                  <span class="matrix-title">INGESTION MAP</span>
-                  <span id="matrix-status" class="matrix-caption">IDLE</span>
+                  <span class="matrix-title">Frame Map</span>
+                  <span id="matrix-status" class="matrix-caption">Idle</span>
                 </div>
                 <div id="chunk-grid" class="chunk-grid">
                   <!-- Generated dynamically -->
@@ -424,8 +424,8 @@
                 <div class="success-banner">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00ff66" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                   <div>
-                    <h3 class="success-title font-mono">&gt; PAYLOAD ASSEMBLED &amp; VERIFIED!</h3>
-                    <p class="success-subtitle font-mono">CRC32 CHECKSUM MATCHED. 100% FRAMES RECONSTRUCTED.</p>
+                    <h3 class="success-title">File Successfully Reconstructed!</h3>
+                    <p class="success-subtitle font-mono">CRC32 integrity verified. All frames received.</p>
                   </div>
                 </div>
 
@@ -433,11 +433,11 @@
                 <div id="file-preview-area" class="file-preview-box hidden font-mono"></div>
 
                 <div class="action-row">
-                  <button id="btn-download-file" class="btn btn-success btn-lg font-mono">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    [ SAVE RECONSTRUCTED FILE (<span id="download-size-badge"></span>) ]
+                  <button id="btn-download-file" class="btn btn-success btn-lg">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download File (<span id="download-size-badge"></span>)
                   </button>
-                  <button id="btn-receive-another" class="btn btn-secondary font-mono">[ RECEIVE ANOTHER ]</button>
+                  <button id="btn-receive-another" class="btn btn-secondary">Receive Another</button>
                 </div>
               </div>
             </div>
@@ -446,48 +446,48 @@
 
         <!-- ================= SELF-TEST SANDBOX VIEW ================= -->
         <section id="sandbox-view" class="view-panel">
-          <div class="sandbox-banner font-mono">
-            <div class="sandbox-badge">[ SIMULATION ]</div>
-            <h3>HARDWARE LOOPBACK BENCHMARK</h3>
-            <p>&gt; Validates encode &gt; decode &gt; CRC32 reconstruction on a single screen without external camera.</p>
+          <div class="sandbox-banner">
+            <div class="sandbox-badge">SIMULATION</div>
+            <h3>Hardware Loopback Benchmark</h3>
+            <p>Validates optical frame encoding, decoding, and CRC32 reconstruction locally on a single machine.</p>
           </div>
 
           <div class="sandbox-split">
             <!-- Sandbox Sender -->
             <div class="card sandbox-col">
               <div class="display-header">
-                <h3 class="card-title font-mono">&gt; VIRTUAL EMITTER</h3>
-                <div class="sample-file-buttons font-mono">
-                  <button id="btn-sandbox-sample-txt" class="btn btn-xs btn-secondary">[ SAMPLE TXT ]</button>
-                  <button id="btn-sandbox-sample-img" class="btn btn-xs btn-secondary">[ SAMPLE PNG ]</button>
+                <h3 class="card-title">Virtual Emitter</h3>
+                <div class="sample-file-buttons">
+                  <button id="btn-sandbox-sample-txt" class="btn btn-xs btn-secondary">Sample Text</button>
+                  <button id="btn-sandbox-sample-img" class="btn btn-xs btn-secondary">Sample PNG</button>
                 </div>
               </div>
 
               <div class="qr-stage compact">
                 <canvas id="sandbox-sender-canvas" width="280" height="280"></canvas>
                 <div class="telemetry-bar font-mono">
-                  <span>FRAME: <strong id="sandbox-frame-idx" class="val-frames">0/0</strong></span>
-                  <span>SPEED: <strong id="sandbox-fps-label" class="val-speed">8 FPS</strong></span>
+                  <span>Frame: <strong id="sandbox-frame-idx" class="val-frames">0/0</strong></span>
+                  <span>Speed: <strong id="sandbox-fps-label" class="val-speed">8 FPS</strong></span>
                 </div>
               </div>
 
-              <div class="playback-controls font-mono">
-                <button id="btn-sandbox-play" class="btn btn-primary btn-sm">[ RUN LOOPBACK ]</button>
-                <button id="btn-sandbox-pause" class="btn btn-secondary btn-sm">[ PAUSE ]</button>
-                <button id="btn-sandbox-stop" class="btn btn-danger btn-sm">[ PURGE ]</button>
+              <div class="playback-controls">
+                <button id="btn-sandbox-play" class="btn btn-primary btn-sm">Run Loopback</button>
+                <button id="btn-sandbox-pause" class="btn btn-secondary btn-sm">Pause</button>
+                <button id="btn-sandbox-stop" class="btn btn-danger btn-sm">Reset</button>
               </div>
             </div>
 
             <!-- Sandbox Receiver -->
             <div class="card sandbox-col">
               <div class="display-header">
-                <h3 class="card-title font-mono">&gt; VIRTUAL DECODER</h3>
-                <span id="sandbox-rec-status" class="badge-status font-mono">STANDBY</span>
+                <h3 class="card-title">Virtual Decoder</h3>
+                <span id="sandbox-rec-status" class="badge-status font-mono">Idle</span>
               </div>
 
-              <div class="sandbox-stats font-mono">
-                <div class="file-info-row">
-                  <span class="info-label">PROGRESS:</span>
+              <div class="sandbox-stats">
+                <div class="file-info-row font-mono">
+                  <span class="info-label">Progress:</span>
                   <span id="sandbox-rec-progress" class="info-value text-neon-green">0 / 0 (0%)</span>
                 </div>
                 <div class="progress-track">
@@ -497,8 +497,8 @@
               </div>
 
               <div id="sandbox-success-box" class="reconstructed-card compact hidden font-mono">
-                <p class="text-success font-semibold">&gt; VERIFICATION SUCCESSFUL // ZERO ERRORS</p>
-                <button id="btn-sandbox-download" class="btn btn-success btn-sm">[ DOWNLOAD BENCHMARK ]</button>
+                <p class="text-neon-green font-semibold">Verification Successful • CRC32 Match</p>
+                <button id="btn-sandbox-download" class="btn btn-success btn-sm">Download Benchmark</button>
               </div>
             </div>
           </div>
@@ -506,8 +506,8 @@
       </main>
 
       <!-- Footer -->
-      <footer class="app-footer font-mono">
-        <p>DECIMEN AIR-GAP OPTICAL TRANSFER // ZERO WI-FI // ZERO BLUETOOTH // PURE LIGHT STREAM</p>
+      <footer class="app-footer">
+        <p>LumaAir • Air-Gapped Optical File Transfer • Zero Wi-Fi • Zero Bluetooth • Pure Light</p>
       </footer>
     </div>
 

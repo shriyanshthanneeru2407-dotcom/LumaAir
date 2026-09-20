@@ -279,7 +279,7 @@ export class OpticalSender {
     if (!this.transferId) {
       this.transferId = Math.random().toString(36).substring(2, 10);
     }
-    return createPairingPacket(this.transferId, 'Luma Terminal', '1x1', 1);
+    return createPairingPacket(this.transferId, 'LumaAir', '1x1', 1);
   }
 
   public async renderPairingQr(): Promise<void> {
